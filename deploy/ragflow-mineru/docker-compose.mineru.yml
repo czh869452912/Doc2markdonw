@@ -1,0 +1,85 @@
+services:
+  mineru-router:
+    image: ${MINERU_IMAGE:-mineru:latest}
+    container_name: mineru-router
+    profiles:
+      - mineru
+    restart: unless-stopped
+    ports:
+      - ${MINERU_ROUTER_PORT:-8002}:8002
+    environment:
+      MINERU_MODEL_SOURCE: ${MINERU_MODEL_SOURCE:-local}
+      MINERU_BACKEND: ${MINERU_BACKEND:-pipeline}
+      MINERU_DELETE_OUTPUT: ${MINERU_DELETE_OUTPUT:-0}
+      NVIDIA_VISIBLE_DEVICES: ${MINERU_NVIDIA_VISIBLE_DEVICES:-all}
+      CUDA_VISIBLE_DEVICES: ${MINERU_CUDA_VISIBLE_DEVICES:-0}
+    entrypoint: mineru-router
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8002"
+      - --local-gpus
+      - ${MINERU_LOCAL_GPUS:-auto}
+    volumes:
+      - ./mineru-home:/root
+      - ./mineru-output:/tmp/mineru
+      - ./mineru-input:/data/input:ro
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    shm_size: ${MINERU_SHM_SIZE:-32g}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    networks:
+      - ragflow
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  mineru-gradio:
+    image: ${MINERU_IMAGE:-mineru:latest}
+    container_name: mineru-gradio
+    profiles:
+      - mineru-ui
+    restart: unless-stopped
+    ports:
+      - ${MINERU_GRADIO_PORT:-7860}:7860
+    environment:
+      MINERU_MODEL_SOURCE: ${MINERU_MODEL_SOURCE:-local}
+      MINERU_BACKEND: ${MINERU_BACKEND:-pipeline}
+      NVIDIA_VISIBLE_DEVICES: ${MINERU_NVIDIA_VISIBLE_DEVICES:-all}
+      CUDA_VISIBLE_DEVICES: ${MINERU_CUDA_VISIBLE_DEVICES:-0}
+    entrypoint: mineru-gradio
+    command:
+      - --server-name
+      - 0.0.0.0
+      - --server-port
+      - "7860"
+    volumes:
+      - ./mineru-home:/root
+      - ./mineru-output:/tmp/mineru
+      - ./mineru-input:/data/input:ro
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    shm_size: ${MINERU_SHM_SIZE:-32g}
+    networks:
+      - ragflow
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

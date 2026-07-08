@@ -1,0 +1,85 @@
+services:
+  md-convert-api:
+    image: ${MD_CONVERT_IMAGE:-md-convert:latest}
+    container_name: md-convert-api
+    profiles:
+      - md-convert
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MD_CONVERT_DATA_DIR: /data
+      MD_CONVERT_REDIS_HOST: redis
+      MD_CONVERT_REDIS_DB: ${MD_CONVERT_REDIS_DB:-1}
+      MD_CONVERT_QUEUE: ${MD_CONVERT_QUEUE:-md-convert}
+      MD_CONVERT_MAX_UPLOAD_BYTES: ${MD_CONVERT_MAX_UPLOAD_BYTES:-52428800}
+      KROKI_URL: http://kroki:8000
+      MERMAID_OUTPUT_FORMAT: ${MERMAID_OUTPUT_FORMAT:-svg}
+    volumes:
+      - ./md-convert-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      kroki:
+        condition: service_started
+    networks:
+      - ragflow
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  md-convert-worker:
+    image: ${MD_CONVERT_IMAGE:-md-convert:latest}
+    container_name: md-convert-worker
+    profiles:
+      - md-convert
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      MD_CONVERT_DATA_DIR: /data
+      MD_CONVERT_REDIS_HOST: redis
+      MD_CONVERT_REDIS_DB: ${MD_CONVERT_REDIS_DB:-1}
+      MD_CONVERT_QUEUE: ${MD_CONVERT_QUEUE:-md-convert}
+      KROKI_URL: http://kroki:8000
+      MERMAID_OUTPUT_FORMAT: ${MERMAID_OUTPUT_FORMAT:-svg}
+    volumes:
+      - ./md-convert-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      kroki:
+        condition: service_started
+    networks:
+      - ragflow
+
+  kroki:
+    image: ${KROKI_IMAGE:-yuzutech/kroki:latest}
+    container_name: kroki
+    profiles:
+      - md-convert
+    restart: unless-stopped
+    environment:
+      KROKI_MERMAID_HOST: kroki-mermaid
+      KROKI_MERMAID_PORT: 8002
+    depends_on:
+      - kroki-mermaid
+    networks:
+      - ragflow
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  kroki-mermaid:
+    image: ${KROKI_MERMAID_IMAGE:-yuzutech/kroki-mermaid:latest}
+    container_name: kroki-mermaid
+    profiles:
+      - md-convert
+    restart: unless-stopped
+    networks:
+      - ragflow

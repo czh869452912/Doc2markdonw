@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Markdown Convert</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel">
+        <div class="heading">
+          <h1>Markdown Convert</h1>
+          <p>Markdown 转 Word/PDF/HTML，支持 LaTeX 公式和 Mermaid 图表。</p>
+        </div>
+
+        <form id="convert-form" class="form">
+          <label>
+            Markdown 文件
+            <input id="file" name="file" type="file" accept=".md,.markdown,.txt" />
+          </label>
+
+          <label>
+            或粘贴 Markdown
+            <textarea id="markdown_text" name="markdown_text" rows="14" spellcheck="false"># 示例
+
+行内公式：$E=mc^2$
+
+```mermaid
+flowchart LR
+  A[Markdown] --> B[Mermaid ELK]
+  B --> C[Word]
+```
+</textarea>
+          </label>
+
+          <div class="grid">
+            <label>
+              输出格式
+              <select id="output_format" name="output_format">
+                <option value="docx" selected>DOCX</option>
+                <option value="doc">DOC</option>
+                <option value="pdf">PDF</option>
+                <option value="html">HTML</option>
+                <option value="odt">ODT</option>
+                <option value="epub">EPUB</option>
+              </select>
+            </label>
+
+            <label>
+              Mermaid 布局
+              <select id="mermaid_layout" name="mermaid_layout">
+                <option value="elk" selected>ELK</option>
+                <option value="dagre">Dagre</option>
+              </select>
+            </label>
+
+            <label>
+              Word 模板 reference.docx
+              <input id="reference_docx" name="reference_docx" type="file" accept=".docx" />
+            </label>
+          </div>
+
+          <label class="check">
+            <input id="render_mermaid" name="render_mermaid" type="checkbox" checked />
+            渲染 Mermaid 图表
+          </label>
+
+          <button id="submit-button" type="submit">提交转换任务</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="heading">
+          <h2>任务</h2>
+          <p>页面会自动轮询最近提交的任务。</p>
+        </div>
+        <div id="jobs" class="jobs"></div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

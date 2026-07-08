@@ -1,0 +1,30 @@
+server {
+    listen 80;
+    server_name _;
+    client_max_body_size ${GATEWAY_MAX_BODY_SIZE};
+    proxy_read_timeout ${GATEWAY_PROXY_READ_TIMEOUT};
+    proxy_send_timeout ${GATEWAY_PROXY_READ_TIMEOUT};
+
+    location = /convert {
+        return 302 /convert/;
+    }
+
+    location /convert/ {
+        proxy_pass http://md-convert-api:8080/;
+        proxy_http_version 1.1;
+    }
+
+    location = /mineru {
+        return 302 /mineru/;
+    }
+
+    location /mineru/ {
+        proxy_pass http://mineru-router:8002/;
+        proxy_http_version 1.1;
+    }
+
+    location / {
+        proxy_pass http://${RAGFLOW_WEB_UPSTREAM};
+        proxy_http_version 1.1;
+    }
+}

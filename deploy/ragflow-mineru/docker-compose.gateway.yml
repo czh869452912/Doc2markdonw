@@ -1,0 +1,71 @@
+services:
+  gateway:
+    image: ${GATEWAY_IMAGE:-nginx:1.27-alpine}
+    container_name: ragflow-mineru-gateway
+    profiles:
+      - gateway
+    restart: unless-stopped
+    ports:
+      - ${PUBLIC_PORT:-18080}:80
+    environment:
+      RAGFLOW_WEB_UPSTREAM: ${RAGFLOW_WEB_UPSTREAM:-ragflow-gpu:80}
+      GATEWAY_MAX_BODY_SIZE: ${GATEWAY_MAX_BODY_SIZE:-1024m}
+      GATEWAY_PROXY_READ_TIMEOUT: ${GATEWAY_PROXY_READ_TIMEOUT:-3600s}
+    volumes:
+      - ./gateway/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks:
+      - ragflow
+    depends_on:
+      - md-convert-api
+      - mineru-router
+
+  ragflow-cpu:
+    ports: !reset []
+
+  ragflow-gpu:
+    ports: !reset []
+
+  mineru-router:
+    ports: !reset []
+
+  mineru-gradio:
+    ports: !reset []
+
+  md-convert-api:
+    ports: !reset []
+
+  es01:
+    ports: !reset []
+
+  opensearch01:
+    ports: !reset []
+
+  infinity:
+    ports: !reset []
+
+  oceanbase:
+    ports: !reset []
+
+  seekdb:
+    ports: !reset []
+
+  mysql:
+    ports: !reset []
+
+  minio:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  nats:
+    ports: !reset []
+
+  tei-cpu:
+    ports: !reset []
+
+  tei-gpu:
+    ports: !reset []
+
+  kibana:
+    ports: !reset []
