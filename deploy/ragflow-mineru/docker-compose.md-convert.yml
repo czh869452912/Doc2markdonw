@@ -17,10 +17,8 @@ services:
     volumes:
       - ./md-convert-data:/data
     depends_on:
-      redis:
-        condition: service_healthy
-      kroki:
-        condition: service_started
+      - redis
+      - kroki
     networks:
       - ragflow
     healthcheck:
@@ -48,10 +46,8 @@ services:
     volumes:
       - ./md-convert-data:/data
     depends_on:
-      redis:
-        condition: service_healthy
-      kroki:
-        condition: service_started
+      - redis
+      - kroki
     networks:
       - ragflow
 
