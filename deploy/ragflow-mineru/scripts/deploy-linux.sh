@@ -60,10 +60,111 @@ require_cmd() {
 
 require_cmd docker
 
-if ! docker compose version >/dev/null 2>&1; then
-  echo "Docker Compose v2 is required: docker compose version" >&2
-  exit 1
-fi
+run_compose() {
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+  elif docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+  else
+    echo "Docker Compose is required: install either 'docker compose' or 'docker-compose'." >&2
+    exit 1
+  fi
+}
+
+write_compose_v1_file() {
+  local source="$1"
+  local target="$2"
+  local strip_include="${3:-0}"
+
+  awk -v strip_include="$strip_include" '
+    function indent(line, prefix) {
+      prefix = line
+      sub(/[^ ].*$/, "", prefix)
+      return length(prefix)
+    }
+
+    function should_strip_block(line) {
+      return current_service != "" &&
+        current_service != "gateway" &&
+        line ~ /^    (ports|extra_hosts|deploy):/
+    }
+
+    function is_gpu_service(service_name) {
+      return service_name == "ragflow-gpu" ||
+        service_name == "mineru-router" ||
+        service_name == "mineru-gradio" ||
+        service_name == "tei-gpu"
+    }
+
+    {
+      if (skipping_include) {
+        if ($0 ~ /^[^[:space:]#][^:]*:/) {
+          skipping_include = 0
+        } else {
+          next
+        }
+      }
+
+      if (strip_include == "1" && $0 ~ /^include:/) {
+        skipping_include = 1
+        next
+      }
+
+      if (skipping_block) {
+        if ($0 ~ /^[[:space:]]*$/) {
+          next
+        }
+        if (indent($0) > block_indent) {
+          next
+        }
+        skipping_block = 0
+      }
+
+      if ($0 ~ /^  [A-Za-z0-9_.-]+:/) {
+        current_service = $0
+        sub(/^  /, "", current_service)
+        sub(/:.*/, "", current_service)
+        print
+        if (is_gpu_service(current_service)) {
+          print "    runtime: nvidia"
+        }
+        next
+      }
+
+      if (should_strip_block($0)) {
+        skipping_block = 1
+        block_indent = indent($0)
+        next
+      }
+
+      print
+    }
+  ' "$source" > "$target"
+}
+
+prepare_compose_v1_files() {
+  local docker_dir="$1"
+  local main_file="$docker_dir/docker-compose.yml"
+  local has_include=0
+
+  if grep -Eq '^include:' "$main_file"; then
+    has_include=1
+  fi
+
+  if [[ "$has_include" -eq 1 && ! -f "$docker_dir/docker-compose-base.yml" ]]; then
+    echo "docker-compose.yml uses include, but docker-compose-base.yml is missing: $docker_dir" >&2
+    exit 1
+  fi
+
+  if [[ "$has_include" -eq 1 ]]; then
+    write_compose_v1_file "$docker_dir/docker-compose-base.yml" "$docker_dir/docker-compose-base.v1.yml" 0
+  fi
+
+  write_compose_v1_file "$docker_dir/docker-compose.yml" "$docker_dir/docker-compose.v1.yml" "$has_include"
+  write_compose_v1_file "$docker_dir/docker-compose.mineru.yml" "$docker_dir/docker-compose.mineru.v1.yml" 0
+  write_compose_v1_file "$docker_dir/docker-compose.md-convert.yml" "$docker_dir/docker-compose.md-convert.v1.yml" 0
+  write_compose_v1_file "$docker_dir/docker-compose.gateway.yml" "$docker_dir/docker-compose.gateway.v1.yml" 0
+}
 
 PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
 SOURCE_DOCKER_DIR="$PACKAGE_DIR/ragflow/docker"
@@ -126,12 +227,21 @@ if [[ "$SKIP_UP" -eq 1 ]]; then
 fi
 
 cd "$TARGET_DOCKER_DIR"
-docker compose \
-  --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.mineru.yml \
-  -f docker-compose.md-convert.yml \
-  -f docker-compose.gateway.yml \
+prepare_compose_v1_files "$TARGET_DOCKER_DIR"
+
+compose_files=()
+if [[ -f docker-compose-base.v1.yml ]]; then
+  compose_files+=(-f docker-compose-base.v1.yml)
+fi
+compose_files+=(
+  -f docker-compose.v1.yml
+  -f docker-compose.mineru.v1.yml
+  -f docker-compose.md-convert.v1.yml
+  -f docker-compose.gateway.v1.yml
+)
+
+run_compose \
+  "${compose_files[@]}" \
   up -d
 
 echo

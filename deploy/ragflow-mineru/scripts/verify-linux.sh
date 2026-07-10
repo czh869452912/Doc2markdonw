@@ -55,13 +55,13 @@ fi
 
 cd "$DOCKER_DIR"
 echo "Compose services:"
-docker compose \
-  --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.mineru.yml \
-  -f docker-compose.md-convert.yml \
-  -f docker-compose.gateway.yml \
-  ps
+docker ps \
+  --filter name=ragflow \
+  --filter name=mineru \
+  --filter name=md-convert \
+  --filter name=kroki \
+  --filter name=redis \
+  --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 PUBLIC_PORT="$(read_env PUBLIC_PORT 18080)"
 
@@ -95,17 +95,5 @@ docker logs --tail 40 ragflow-mineru-gateway || true
 
 echo
 echo "Recent RAGFlow logs:"
-docker compose \
-  --env-file .env \
-  -f docker-compose.yml \
-  -f docker-compose.mineru.yml \
-  -f docker-compose.md-convert.yml \
-  -f docker-compose.gateway.yml \
-  logs --tail 40 ragflow-gpu || \
-  docker compose \
-    --env-file .env \
-    -f docker-compose.yml \
-    -f docker-compose.mineru.yml \
-    -f docker-compose.md-convert.yml \
-    -f docker-compose.gateway.yml \
-    logs --tail 40 ragflow-cpu || true
+docker logs --tail 40 ragflow-gpu || \
+  docker logs --tail 40 ragflow-cpu || true

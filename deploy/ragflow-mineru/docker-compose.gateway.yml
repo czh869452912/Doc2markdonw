@@ -20,52 +20,52 @@ services:
       - mineru-router
 
   ragflow-cpu:
-    ports: !reset []
+    ports: []
 
   ragflow-gpu:
-    ports: !reset []
+    ports: []
 
   mineru-router:
-    ports: !reset []
+    ports: []
 
   mineru-gradio:
-    ports: !reset []
+    ports: []
 
   md-convert-api:
-    ports: !reset []
+    ports: []
 
   es01:
-    ports: !reset []
+    ports: []
 
   opensearch01:
-    ports: !reset []
+    ports: []
 
   infinity:
-    ports: !reset []
+    ports: []
 
   oceanbase:
-    ports: !reset []
+    ports: []
 
   seekdb:
-    ports: !reset []
+    ports: []
 
   mysql:
-    ports: !reset []
+    ports: []
 
   minio:
-    ports: !reset []
+    ports: []
 
   redis:
-    ports: !reset []
+    ports: []
 
   nats:
-    ports: !reset []
+    ports: []
 
   tei-cpu:
-    ports: !reset []
+    ports: []
 
   tei-gpu:
-    ports: !reset []
+    ports: []
 
   kibana:
-    ports: !reset []
+    ports: []
