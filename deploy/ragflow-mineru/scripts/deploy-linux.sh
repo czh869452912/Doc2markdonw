@@ -213,6 +213,7 @@ mkdir -p \
   "$TARGET_DOCKER_DIR/md-convert-data"
 
 chmod +x "$PACKAGE_DIR"/scripts/*.sh || true
+find "$TARGET_DOCKER_DIR" -maxdepth 3 -type f -name "*.sh" -exec chmod +x {} \;
 
 if command -v nvidia-smi >/dev/null 2>&1; then
   echo "Host NVIDIA devices:"
