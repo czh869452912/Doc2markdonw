@@ -207,7 +207,6 @@ mkdir -p "$TARGET_DOCKER_DIR"
 cp -a "$SOURCE_DOCKER_DIR"/. "$TARGET_DOCKER_DIR"/
 mkdir -p \
   "$TARGET_DOCKER_DIR/ragflow-logs" \
-  "$TARGET_DOCKER_DIR/mineru-home" \
   "$TARGET_DOCKER_DIR/mineru-input" \
   "$TARGET_DOCKER_DIR/mineru-output" \
   "$TARGET_DOCKER_DIR/md-convert-data"

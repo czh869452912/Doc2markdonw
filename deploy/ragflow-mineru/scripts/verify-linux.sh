@@ -54,6 +54,33 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 cd "$DOCKER_DIR"
+
+if docker inspect mineru-router \
+  --format '{{range .Mounts}}{{println .Destination}}{{end}}' \
+  | grep -Fxq '/root'; then
+  echo "MinerU container must not mount /root; the mount hides image-owned models." >&2
+  exit 1
+fi
+
+echo "Checking embedded MinerU model paths..."
+docker exec -i mineru-router python3 - <<'PY'
+import os
+
+from mineru.utils.config_reader import get_local_models_dir
+
+models_dir = get_local_models_dir()
+if not isinstance(models_dir, dict):
+    raise SystemExit("MinerU 'models-dir' configuration is missing or invalid")
+
+for repo_mode in ("pipeline", "vlm"):
+    model_path = models_dir.get(repo_mode)
+    if not isinstance(model_path, str) or not os.path.isdir(model_path):
+        raise SystemExit(
+            f"Embedded MinerU {repo_mode} model directory is missing: {model_path!r}"
+        )
+    print(f"Embedded MinerU {repo_mode} models: {model_path}")
+PY
+
 echo "Compose services:"
 docker ps \
   --filter name=ragflow \

@@ -55,9 +55,6 @@ notepad .\airgap.prod.env
 
 # Use Elasticsearch instead of Infinity.
 .\deploy\ragflow-mineru\scripts\package-windows.ps1 -BuildMineru -DocEngine elasticsearch
-
-# Include a prepared MinerU /root directory containing mineru.json and model cache.
-.\deploy\ragflow-mineru\scripts\package-windows.ps1 -BuildMineru -IncludeMineruHome -MineruHomePath D:\mineru-home
 ```
 
 Before production packaging, use `-EnvOverridePath` to replace all default
@@ -68,25 +65,21 @@ end of `.env`; the last value for a key is the value Docker Compose uses.
 
 ## MinerU models
 
-The stack sets `MINERU_MODEL_SOURCE=local`, so the intranet server must already
-have MinerU models inside `ragflow/docker/mineru-home`.
+The pipeline and VLM models, `/root/mineru.json`, and their model cache are
+embedded in `mineru:latest`. The stack sets `MINERU_MODEL_SOURCE=local` and does
+not mount a host directory at `/root`, so parsing remains offline and the image
+owns the complete model configuration.
 
-One practical path:
+To update MinerU models, rebuild `mineru:latest` on the connected packaging
+machine and create a new air-gap package. Do not add a `/root` bind mount; an
+empty or incomplete host directory would hide the embedded configuration and
+models.
 
-1. Build or pull `mineru:latest` on a connected staging Linux machine.
-2. Run:
-
-   ```bash
-   bash scripts/download-mineru-models-linux.sh --project-dir /opt/ragflow-mineru --image mineru:latest --source modelscope
-   ```
-
-3. Copy `/opt/ragflow-mineru/ragflow/docker/mineru-home` back to the Windows
-   packaging machine.
-4. Package with `-IncludeMineruHome -MineruHomePath <copied-mineru-home>`.
-
-If your organization mirrors Hugging Face or ModelScope internally, you can
-also mount a prebuilt `mineru-home` directory directly on the Linux server
-before starting the stack.
+When upgrading an existing deployment, replace the package files and rerun
+`deploy-linux.sh` with `--skip-load` if the image archives were already loaded.
+Docker Compose will recreate the MinerU service after its mount configuration
+changes. An old `ragflow/docker/mineru-home` directory is unused and is not
+deleted automatically.
 
 ## Linux intranet server
 

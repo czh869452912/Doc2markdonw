@@ -22,7 +22,6 @@ services:
       - --local-gpus
       - ${MINERU_LOCAL_GPUS:-auto}
     volumes:
-      - ./mineru-home:/root
       - ./mineru-output:/tmp/mineru
       - ./mineru-input:/data/input:ro
     ulimits:
@@ -66,7 +65,6 @@ services:
       - --server-port
       - "7860"
     volumes:
-      - ./mineru-home:/root
       - ./mineru-output:/tmp/mineru
       - ./mineru-input:/data/input:ro
     ulimits:

@@ -19,8 +19,6 @@ param(
     [switch]$SkipMdConvertBuild,
     [switch]$SkipPull,
     [switch]$SkipImageSave,
-    [switch]$IncludeMineruHome,
-    [string]$MineruHomePath = "",
     [string]$EnvOverridePath = "",
     [string[]]$ExtraImages = @(),
     [switch]$NoArchive
@@ -278,24 +276,12 @@ Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\md-convert") -Destina
 Copy-Item -Force -Path (Join-Path $StackDir "README.md") -Destination (Join-Path $packageDir "README.md")
 Copy-Item -Force -Path (Join-Path $ScriptDir "deploy-linux.sh") -Destination $packageScriptsDir
 Copy-Item -Force -Path (Join-Path $ScriptDir "verify-linux.sh") -Destination $packageScriptsDir
-Copy-Item -Force -Path (Join-Path $ScriptDir "download-mineru-models-linux.sh") -Destination $packageScriptsDir
 
 New-Item -ItemType Directory -Force -Path `
     (Join-Path $packageDockerDir "ragflow-logs"), `
-    (Join-Path $packageDockerDir "mineru-home"), `
     (Join-Path $packageDockerDir "mineru-input"), `
     (Join-Path $packageDockerDir "mineru-output"), `
     (Join-Path $packageDockerDir "md-convert-data") | Out-Null
-
-if ($IncludeMineruHome) {
-    if ([string]::IsNullOrWhiteSpace($MineruHomePath)) {
-        throw "-IncludeMineruHome requires -MineruHomePath."
-    }
-    if (-not (Test-Path $MineruHomePath)) {
-        throw "MinerU home path does not exist: $MineruHomePath"
-    }
-    Copy-DirectoryFresh -Source $MineruHomePath -Destination (Join-Path $packageDockerDir "mineru-home")
-}
 
 if ([string]::IsNullOrWhiteSpace($RagflowImage)) {
     $RagflowImage = "infiniflow/ragflow:$RagflowRef"
