@@ -163,7 +163,7 @@ def _pandoc_command(
         "pandoc",
         str(input_path),
         "--from",
-        "gfm+tex_math_dollars+tex_math_single_backslash",
+        "gfm+tex_math_dollars",
         "--standalone",
         "--resource-path",
         str(work_dir),

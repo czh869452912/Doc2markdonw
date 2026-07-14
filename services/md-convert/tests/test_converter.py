@@ -99,7 +99,7 @@ Math remains inline: $E=mc^2$.
                         "pandoc",
                         str(tmp_path / "input.md"),
                         "--from",
-                        "gfm+tex_math_dollars+tex_math_single_backslash",
+                        "gfm+tex_math_dollars",
                         "--standalone",
                         "--resource-path",
                         str(tmp_path),
