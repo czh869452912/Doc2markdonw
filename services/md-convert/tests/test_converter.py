@@ -2,8 +2,12 @@ from pathlib import Path
 import unittest
 
 from app.converter import (
+    MERMAID_FILTER_PATH,
     ConversionRequest,
+    MermaidDensity,
+    MermaidFormat,
     OutputFormat,
+    RenderedDiagram,
     build_conversion_plan,
     preprocess_markdown,
     validate_output_format,
@@ -14,11 +18,17 @@ class FakeRenderer:
     def __init__(self):
         self.calls = []
 
-    def render(self, diagram: str, output_dir: Path, layout: str) -> Path:
+    def render(
+        self,
+        diagram: str,
+        output_dir: Path,
+        layout: str,
+        density: MermaidDensity = MermaidDensity.STANDARD,
+    ) -> RenderedDiagram:
         self.calls.append({"diagram": diagram, "layout": layout})
         path = output_dir / f"diagram-{len(self.calls)}.svg"
-        path.write_text("<svg></svg>", encoding="utf-8")
-        return path
+        path.write_text('<svg viewBox="0 0 400 200"></svg>', encoding="utf-8")
+        return RenderedDiagram(path, MermaidFormat.SVG, 400, 200)
 
 
 class ConverterTests(unittest.TestCase):
@@ -62,7 +72,10 @@ Math remains inline: $E=mc^2$.
                     [{"diagram": "flowchart LR\n  A --> B", "layout": "elk"}],
                 )
                 self.assertNotIn("```mermaid", result)
-                self.assertIn("![Mermaid diagram](diagram-1.svg)", result)
+                self.assertIn(
+                    '![Mermaid diagram](diagram-1.svg "md-convert-mermaid:width=4.167in")',
+                    result,
+                )
                 self.assertIn("$E=mc^2$", result)
 
     def test_preprocess_markdown_leaves_mermaid_disabled(self):
@@ -103,6 +116,8 @@ Math remains inline: $E=mc^2$.
                         "--standalone",
                         "--resource-path",
                         str(tmp_path),
+                        "--lua-filter",
+                        str(MERMAID_FILTER_PATH),
                         "-o",
                         str(tmp_path / "result.docx"),
                     ]

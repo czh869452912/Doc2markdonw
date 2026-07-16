@@ -48,14 +48,6 @@ flowchart LR
             </label>
 
             <label>
-              Mermaid 布局
-              <select id="mermaid_layout" name="mermaid_layout">
-                <option value="elk" selected>ELK</option>
-                <option value="dagre">Dagre</option>
-              </select>
-            </label>
-
-            <label>
               Word 模板 reference.docx
               <input id="reference_docx" name="reference_docx" type="file" accept=".docx" />
             </label>
@@ -66,7 +58,47 @@ flowchart LR
             渲染 Mermaid 图表
           </label>
 
-          <button id="submit-button" type="submit">提交转换任务</button>
+          <fieldset class="mermaid-settings">
+            <legend>Mermaid 设置</legend>
+            <div class="mermaid-grid">
+              <label>
+                图片格式
+                <select id="mermaid_format" name="mermaid_format">
+                  <option value="auto" selected>自动</option>
+                  <option value="png">PNG</option>
+                  <option value="svg">SVG</option>
+                </select>
+              </label>
+
+              <label>
+                布局引擎
+                <select id="mermaid_layout" name="mermaid_layout">
+                  <option value="elk" selected>ELK</option>
+                  <option value="dagre">Dagre</option>
+                </select>
+              </label>
+
+              <label>
+                流程方向
+                <select id="mermaid_direction" name="mermaid_direction">
+                  <option value="source" selected>保持源码</option>
+                  <option value="tb">优先纵向</option>
+                  <option value="lr">优先横向</option>
+                </select>
+              </label>
+
+              <label>
+                流程图密度
+                <select id="mermaid_density" name="mermaid_density">
+                  <option value="compact">紧凑</option>
+                  <option value="standard" selected>标准</option>
+                  <option value="spacious">宽松</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <button id="submit-button" type="submit" disabled>提交转换任务</button>
         </form>
       </section>
 

@@ -1,9 +1,25 @@
 const form = document.querySelector("#convert-form");
 const button = document.querySelector("#submit-button");
 const jobsEl = document.querySelector("#jobs");
-const storageKey = "md-convert-jobs";
+const renderMermaid = document.querySelector("#render_mermaid");
+const mermaidControls = [
+  "#mermaid_format",
+  "#mermaid_layout",
+  "#mermaid_direction",
+  "#mermaid_density",
+].map((selector) => document.querySelector(selector));
+let storageKey = null;
+
+function syncMermaidControls() {
+  mermaidControls.forEach((control) => {
+    control.disabled = !renderMermaid.checked;
+  });
+}
 
 function loadJobs() {
+  if (!storageKey) {
+    return [];
+  }
   try {
     return JSON.parse(localStorage.getItem(storageKey) || "[]");
   } catch {
@@ -12,7 +28,16 @@ function loadJobs() {
 }
 
 function saveJobs(jobs) {
+  if (!storageKey) {
+    return;
+  }
   localStorage.setItem(storageKey, JSON.stringify(jobs.slice(0, 20)));
+}
+
+function removeJob(jobId) {
+  const jobs = loadJobs().filter((item) => item.job_id !== jobId);
+  saveJobs(jobs);
+  renderJobs(jobs);
 }
 
 function upsertJob(job) {
@@ -57,6 +82,10 @@ async function pollJob(job) {
     return;
   }
   const response = await fetch(job.status_url || `api/jobs/${job.job_id}`);
+  if (response.status === 404) {
+    removeJob(job.job_id);
+    return;
+  }
   if (!response.ok) {
     return;
   }
@@ -85,14 +114,36 @@ form.addEventListener("submit", async (event) => {
   } catch (error) {
     alert(error.message);
   } finally {
-    button.disabled = false;
+    button.disabled = !storageKey;
     button.textContent = "提交转换任务";
   }
 });
 
-renderJobs();
+renderMermaid.addEventListener("change", syncMermaidControls);
+
+async function initializeSession() {
+  try {
+    const response = await fetch("api/session");
+    if (!response.ok) {
+      throw new Error("会话初始化失败");
+    }
+    const session = await response.json();
+    storageKey = `md-convert-jobs:${session.session_id}`;
+    renderJobs();
+    button.disabled = false;
+  } catch (error) {
+    jobsEl.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
 setInterval(() => {
+  if (!storageKey) {
+    return;
+  }
   loadJobs().forEach((job) => {
     pollJob(job).catch(() => {});
   });
 }, 2500);
+
+initializeSession();
+syncMermaidControls();

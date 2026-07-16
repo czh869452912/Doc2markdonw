@@ -156,18 +156,23 @@ curl http://<server>:<PUBLIC_PORT>/convert/api/health
 Submit Markdown -> DOCX with Mermaid rendered by Kroki and ELK layout:
 
 ```bash
-curl -X POST http://<server>:<PUBLIC_PORT>/convert/api/jobs \
+curl -c md-convert.cookies -X POST http://<server>:<PUBLIC_PORT>/convert/api/jobs \
   -F "output_format=docx" \
   -F "render_mermaid=true" \
   -F "mermaid_layout=elk" \
+  -F "mermaid_format=auto" \
+  -F "mermaid_direction=source" \
+  -F "mermaid_density=standard" \
   -F "file=@sample.md"
 ```
 
 Poll and download:
 
 ```bash
-curl http://<server>:<PUBLIC_PORT>/convert/api/jobs/<job_id>
-curl -L http://<server>:<PUBLIC_PORT>/convert/api/jobs/<job_id>/download -o result.docx
+curl -b md-convert.cookies http://<server>:<PUBLIC_PORT>/convert/api/jobs/<job_id>
+curl -b md-convert.cookies -L \
+  http://<server>:<PUBLIC_PORT>/convert/api/jobs/<job_id>/download \
+  -o result.docx
 ```
 
 Supported output formats:
@@ -179,10 +184,16 @@ Supported output formats:
 - `odt`
 - `epub`
 
-LaTeX math is passed through Pandoc with
-`gfm+tex_math_dollars+tex_math_single_backslash`. Mermaid code fences are
-pre-rendered through Kroki before Pandoc runs. The default Mermaid layout is
-`elk`; set `mermaid_layout=dagre` when needed.
+LaTeX math is passed through Pandoc with `gfm+tex_math_dollars`. Mermaid code
+fences are pre-rendered through Kroki before Pandoc runs. The default layout is
+`elk`. In `auto` format mode, DOCX, DOC, and PDF use PNG while HTML, ODT, and
+EPUB use SVG. PNG diagrams are sized to retain at least 150 PPI and fit within
+the document page. The form also supports source/TB/LR flow direction and
+compact/standard/spacious flowchart density.
+
+Anonymous jobs are isolated by a browser-session cookie. Set
+`MD_CONVERT_COOKIE_SECURE=true` only when clients access the gateway through
+HTTPS.
 
 ## Operational notes
 

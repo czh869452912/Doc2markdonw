@@ -1,19 +1,28 @@
 from __future__ import annotations
 
+import hmac
 import shutil
 import uuid
 from pathlib import Path
 
 import redis
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from rq import Queue
 from rq.job import Job
 
-from .converter import OutputFormat, validate_output_format
+from .converter import (
+    OutputFormat,
+    validate_mermaid_density,
+    validate_mermaid_direction,
+    validate_mermaid_format,
+    validate_mermaid_layout,
+    validate_output_format,
+)
 from .jobs import run_conversion_job
 from .settings import Settings, get_settings
+from .sessions import COOKIE_NAME, SessionIdentity, resolve_session, set_session_cookie
 
 
 settings = get_settings()
@@ -35,17 +44,36 @@ def formats() -> dict:
     return {"formats": [item.value for item in OutputFormat]}
 
 
+@app.get("/api/session")
+def get_session(request: Request, response: Response) -> dict:
+    identity = _resolve_request_session(request, response)
+    return {"session_id": identity.fingerprint}
+
+
 @app.post("/api/jobs")
 async def create_job(
+    request: Request,
+    response: Response,
     output_format: str = Form("docx"),
     markdown_text: str = Form(""),
     render_mermaid: bool = Form(True),
     mermaid_layout: str = Form("elk"),
+    mermaid_format: str | None = Form(None),
+    mermaid_direction: str = Form("source"),
+    mermaid_density: str = Form("standard"),
     pdf_engine: str = Form("xelatex"),
     file: UploadFile | None = File(None),
     reference_docx: UploadFile | None = File(None),
 ) -> dict:
+    identity = _resolve_request_session(request, response)
     selected_format = _validate_format_or_400(output_format)
+    selected_mermaid_format = _validate_or_400(
+        mermaid_format or settings.mermaid_output_format,
+        validate_mermaid_format,
+    )
+    selected_direction = _validate_or_400(mermaid_direction, validate_mermaid_direction)
+    selected_density = _validate_or_400(mermaid_density, validate_mermaid_density)
+    selected_layout = _validate_or_400(mermaid_layout, validate_mermaid_layout)
     markdown = await _read_markdown(markdown_text, file, settings)
     job_id = str(uuid.uuid4())
     job_dir = settings.data_dir / "jobs" / job_id
@@ -61,21 +89,21 @@ async def create_job(
             shutil.copyfileobj(reference_docx.file, handle)
 
     queue = get_queue()
-    queue.enqueue(
-        run_conversion_job,
-        job_id,
-        str(job_dir),
-        {
+    _enqueue_conversion_job(
+        queue,
+        job_id=job_id,
+        job_dir=str(job_dir),
+        owner_hash=identity.owner_hash,
+        options={
             "output_format": selected_format.value,
             "render_mermaid": render_mermaid,
-            "mermaid_layout": mermaid_layout,
+            "mermaid_layout": selected_layout,
+            "mermaid_format": selected_mermaid_format.value,
+            "mermaid_direction": selected_direction.value,
+            "mermaid_density": selected_density.value,
             "reference_docx": str(reference_path) if reference_path else None,
             "pdf_engine": pdf_engine,
         },
-        job_id=job_id,
-        result_ttl=86400,
-        failure_ttl=604800,
-        job_timeout="30m",
     )
 
     return {
@@ -86,8 +114,9 @@ async def create_job(
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str) -> dict:
-    job = _fetch_job_or_404(job_id)
+def get_job(job_id: str, request: Request, response: Response) -> dict:
+    identity = _resolve_request_session(request, response)
+    job = _fetch_owned_job_or_404(job_id, identity.owner_hash)
     status = job.get_status(refresh=True)
     response = {
         "job_id": job.id,
@@ -104,8 +133,9 @@ def get_job(job_id: str) -> dict:
 
 
 @app.get("/api/jobs/{job_id}/download")
-def download_job(job_id: str) -> FileResponse:
-    job = _fetch_job_or_404(job_id)
+def download_job(job_id: str, request: Request, response: Response) -> FileResponse:
+    identity = _resolve_request_session(request, response)
+    job = _fetch_owned_job_or_404(job_id, identity.owner_hash)
     if job.get_status(refresh=True) != "finished" or not isinstance(job.result, dict):
         raise HTTPException(status_code=409, detail="Job is not finished")
 
@@ -146,11 +176,49 @@ def _validate_format_or_400(value: str) -> OutputFormat:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _fetch_job_or_404(job_id: str) -> Job:
+def _validate_or_400(value: str, validator):
     try:
-        return Job.fetch(job_id, connection=get_queue().connection)
+        return validator(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _resolve_request_session(request: Request, response: Response) -> SessionIdentity:
+    identity = resolve_session(request.cookies.get(COOKIE_NAME))
+    if identity.is_new:
+        set_session_cookie(response, identity, secure=settings.cookie_secure)
+    return identity
+
+
+def _enqueue_conversion_job(
+    queue: Queue,
+    job_id: str,
+    job_dir: str,
+    options: dict,
+    owner_hash: str,
+) -> Job:
+    return queue.enqueue(
+        run_conversion_job,
+        job_id,
+        job_dir,
+        options,
+        job_id=job_id,
+        result_ttl=86400,
+        failure_ttl=604800,
+        job_timeout="30m",
+        meta={"owner_session_hash": owner_hash},
+    )
+
+
+def _fetch_owned_job_or_404(job_id: str, owner_hash: str) -> Job:
+    try:
+        job = Job.fetch(job_id, connection=get_queue().connection)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
+    stored_owner = job.meta.get("owner_session_hash")
+    if not isinstance(stored_owner, str) or not hmac.compare_digest(stored_owner, owner_hash):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 static_dir = Path(__file__).parent / "static"

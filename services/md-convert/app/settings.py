@@ -14,6 +14,7 @@ class Settings:
     kroki_url: str
     mermaid_output_format: str
     max_upload_bytes: int
+    cookie_secure: bool
 
 
 def get_settings() -> Settings:
@@ -32,6 +33,8 @@ def get_settings() -> Settings:
         redis_url=redis_url,
         queue_name=os.getenv("MD_CONVERT_QUEUE", "md-convert"),
         kroki_url=os.getenv("KROKI_URL", "http://kroki:8000"),
-        mermaid_output_format=os.getenv("MERMAID_OUTPUT_FORMAT", "svg"),
+        mermaid_output_format=os.getenv("MERMAID_OUTPUT_FORMAT", "auto"),
         max_upload_bytes=int(os.getenv("MD_CONVERT_MAX_UPLOAD_BYTES", "52428800")),
+        cookie_secure=os.getenv("MD_CONVERT_COOKIE_SECURE", "false").lower()
+        in {"1", "true", "yes", "on"},
     )
