@@ -5,26 +5,46 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKAGE_DIR="$DEFAULT_PACKAGE_DIR"
 PROJECT_DIR="/opt/ragflow-mineru"
+ACTION="up"
+ACTION_SET=0
 SKIP_LOAD=0
 SKIP_UP=0
+PURGE_DATA=0
+PACKAGE_DIR_SET=0
+SKIP_LOAD_SET=0
+SKIP_UP_SET=0
 
 usage() {
   cat <<'EOF'
-Usage: sudo bash scripts/deploy-linux.sh [options]
+Usage:
+  sudo bash scripts/deploy-linux.sh [up] [options]
+  sudo bash scripts/deploy-linux.sh down [--project-dir PATH]
+  sudo bash scripts/deploy-linux.sh rm [--project-dir PATH] [--purge-data]
 
 Options:
   --package-dir PATH   Unpacked offline package directory.
   --project-dir PATH   Install/runtime directory. Default: /opt/ragflow-mineru
   --skip-load          Do not run docker load for images/*.tar.
   --skip-up            Prepare files and images but do not start containers.
+  --purge-data         With rm, also remove Compose volumes and PROJECT_DIR.
   -h, --help           Show this help.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    up|down|rm)
+      if [[ "$ACTION_SET" -eq 1 ]]; then
+        echo "Only one action may be specified." >&2
+        exit 2
+      fi
+      ACTION="$1"
+      ACTION_SET=1
+      shift
+      ;;
     --package-dir)
       PACKAGE_DIR="$2"
+      PACKAGE_DIR_SET=1
       shift 2
       ;;
     --project-dir)
@@ -33,10 +53,16 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-load)
       SKIP_LOAD=1
+      SKIP_LOAD_SET=1
       shift
       ;;
     --skip-up)
       SKIP_UP=1
+      SKIP_UP_SET=1
+      shift
+      ;;
+    --purge-data)
+      PURGE_DATA=1
       shift
       ;;
     -h|--help)
@@ -44,12 +70,32 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "Unknown option: $1" >&2
+      echo "Unknown action or option: $1" >&2
       usage
       exit 2
       ;;
   esac
 done
+
+if [[ "$PURGE_DATA" -eq 1 && "$ACTION" != "rm" ]]; then
+  echo "--purge-data is valid only with the rm action." >&2
+  exit 2
+fi
+
+if [[ "$ACTION" != "up" ]]; then
+  if [[ "$PACKAGE_DIR_SET" -eq 1 ]]; then
+    echo "--package-dir is valid only with the up action." >&2
+    exit 2
+  fi
+  if [[ "$SKIP_LOAD_SET" -eq 1 ]]; then
+    echo "--skip-load is valid only with the up action." >&2
+    exit 2
+  fi
+  if [[ "$SKIP_UP_SET" -eq 1 ]]; then
+    echo "--skip-up is valid only with the up action." >&2
+    exit 2
+  fi
+fi
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -166,6 +212,106 @@ prepare_compose_v1_files() {
   write_compose_v1_file "$docker_dir/docker-compose.gateway.yml" "$docker_dir/docker-compose.gateway.v1.yml" 0
 }
 
+compose_files=()
+
+prepare_runtime_compose_files() {
+  local docker_dir="$1"
+  local source_file
+  local required_files=(
+    docker-compose.yml
+    docker-compose.mineru.yml
+    docker-compose.md-convert.yml
+    docker-compose.gateway.yml
+  )
+
+  for source_file in "${required_files[@]}"; do
+    if [[ ! -f "$docker_dir/$source_file" ]]; then
+      echo "Installed runtime is missing $source_file: $docker_dir" >&2
+      echo "Run the deployment action first." >&2
+      exit 1
+    fi
+  done
+
+  prepare_compose_v1_files "$docker_dir"
+  compose_files=()
+  if [[ -f "$docker_dir/docker-compose-base.v1.yml" ]]; then
+    compose_files+=(-f docker-compose-base.v1.yml)
+  fi
+  compose_files+=(
+    -f docker-compose.v1.yml
+    -f docker-compose.mineru.v1.yml
+    -f docker-compose.md-convert.v1.yml
+    -f docker-compose.gateway.v1.yml
+  )
+}
+
+resolve_installed_project_dir() {
+  if [[ ! -d "$PROJECT_DIR" ]]; then
+    echo "Installed project directory does not exist: $PROJECT_DIR" >&2
+    return 1
+  fi
+  (cd "$PROJECT_DIR" && pwd -P)
+}
+
+validate_purge_project_dir() {
+  local resolved_project_dir="$1"
+
+  case "$resolved_project_dir" in
+    ""|/|/opt|/usr|/var|/home)
+      echo "Refusing to purge dangerous project path: $resolved_project_dir" >&2
+      return 1
+      ;;
+  esac
+
+  if [[ "$resolved_project_dir" != /* ]]; then
+    echo "Refusing to purge non-absolute project path: $resolved_project_dir" >&2
+    return 1
+  fi
+
+  if [[ ! -d "$resolved_project_dir/ragflow/docker" ]]; then
+    echo "Refusing to purge path without ragflow/docker: $resolved_project_dir" >&2
+    return 1
+  fi
+}
+
+run_lifecycle_action() {
+  local resolved_project_dir
+  local runtime_docker_dir
+
+  resolved_project_dir="$(resolve_installed_project_dir)"
+  runtime_docker_dir="$resolved_project_dir/ragflow/docker"
+  if [[ "$PURGE_DATA" -eq 1 ]]; then
+    validate_purge_project_dir "$resolved_project_dir"
+  fi
+
+  prepare_runtime_compose_files "$runtime_docker_dir"
+  cd "$runtime_docker_dir"
+
+  case "$ACTION" in
+    down)
+      run_compose "${compose_files[@]}" stop
+      echo "Deployment containers stopped."
+      ;;
+    rm)
+      if [[ "$PURGE_DATA" -eq 1 ]]; then
+        run_compose "${compose_files[@]}" down --volumes --remove-orphans
+        cd /
+        echo "Removing deployment data: $resolved_project_dir"
+        rm -rf -- "$resolved_project_dir"
+        echo "Deployment containers, networks, volumes, and data removed. Docker images were preserved."
+      else
+        run_compose "${compose_files[@]}" down --remove-orphans
+        echo "Deployment containers and networks removed. Data and Docker images were preserved."
+      fi
+      ;;
+  esac
+}
+
+if [[ "$ACTION" != "up" ]]; then
+  run_lifecycle_action
+  exit 0
+fi
+
 PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
 SOURCE_DOCKER_DIR="$PACKAGE_DIR/ragflow/docker"
 TARGET_DOCKER_DIR="$PROJECT_DIR/ragflow/docker"
@@ -227,18 +373,7 @@ if [[ "$SKIP_UP" -eq 1 ]]; then
 fi
 
 cd "$TARGET_DOCKER_DIR"
-prepare_compose_v1_files "$TARGET_DOCKER_DIR"
-
-compose_files=()
-if [[ -f docker-compose-base.v1.yml ]]; then
-  compose_files+=(-f docker-compose-base.v1.yml)
-fi
-compose_files+=(
-  -f docker-compose.v1.yml
-  -f docker-compose.mineru.v1.yml
-  -f docker-compose.md-convert.v1.yml
-  -f docker-compose.gateway.v1.yml
-)
+prepare_runtime_compose_files "$TARGET_DOCKER_DIR"
 
 run_compose \
   "${compose_files[@]}" \

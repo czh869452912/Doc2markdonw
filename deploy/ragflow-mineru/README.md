@@ -110,6 +110,34 @@ Default endpoints:
 
 The default `PUBLIC_PORT` is `18080`.
 
+## Deployment lifecycle
+
+The same script can stop or remove every container in the installed stack. The
+default project directory remains `/opt/ragflow-mineru`; pass `--project-dir`
+when the stack was installed elsewhere.
+
+```bash
+# Stop containers while retaining containers, networks, volumes, and data.
+sudo bash scripts/deploy-linux.sh down
+
+# Remove containers and Compose networks while retaining all persistent data.
+sudo bash scripts/deploy-linux.sh rm
+
+# Also remove Compose volumes and the complete installed project/data directory.
+sudo bash scripts/deploy-linux.sh rm --purge-data
+```
+
+| Command | Containers | Compose networks | Volumes and project data | Docker images |
+| --- | --- | --- | --- | --- |
+| `down` | Stopped and retained | Retained | Retained | Retained |
+| `rm` | Removed | Removed | Retained | Retained |
+| `rm --purge-data` | Removed | Removed | Removed | Retained |
+
+`--purge-data` is accepted only with `rm`. It deletes the resolved project
+directory after validating that it is an installed RAGFlow runtime and not a
+system path. None of the lifecycle actions remove Docker images, so an offline
+server can deploy again without re-importing the image archives.
+
 ## MinerU API smoke tests
 
 Health:
