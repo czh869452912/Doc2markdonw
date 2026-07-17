@@ -17,6 +17,21 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.max_files, 10)
         self.assertEqual(settings.convert_timeout_seconds, 300)
         self.assertEqual(settings.max_concurrent_conversions, 1)
+        self.assertEqual(
+            getattr(settings, "upstream_connect_timeout_seconds", None), 10
+        )
+        self.assertEqual(
+            getattr(settings, "upstream_read_timeout_seconds", None), 3600
+        )
+        self.assertEqual(
+            getattr(settings, "upstream_write_timeout_seconds", None), 300
+        )
+        self.assertEqual(
+            getattr(settings, "upstream_pool_timeout_seconds", None), 30
+        )
+        self.assertEqual(
+            getattr(settings, "upstream_health_timeout_seconds", None), 5
+        )
 
     def test_invalid_default_mode_fails_at_startup(self):
         with patch.dict(os.environ, {"OFFICE_DEFAULT_MODE": "guess"}, clear=True):

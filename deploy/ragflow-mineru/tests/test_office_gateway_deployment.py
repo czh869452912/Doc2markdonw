@@ -37,6 +37,11 @@ class OfficeGatewayDeploymentTests(unittest.TestCase):
             "OFFICE_MAX_FILES_PER_REQUEST",
             "OFFICE_CONVERT_TIMEOUT_SECONDS",
             "OFFICE_MAX_CONCURRENT_CONVERSIONS",
+            "OFFICE_UPSTREAM_CONNECT_TIMEOUT_SECONDS",
+            "OFFICE_UPSTREAM_READ_TIMEOUT_SECONDS",
+            "OFFICE_UPSTREAM_WRITE_TIMEOUT_SECONDS",
+            "OFFICE_UPSTREAM_POOL_TIMEOUT_SECONDS",
+            "OFFICE_UPSTREAM_HEALTH_TIMEOUT_SECONDS",
             "OFFICE_TMP_DIR",
             "OFFICE_EXTRA_FONT_DIR",
         ):
@@ -64,6 +69,11 @@ class OfficeGatewayDeploymentTests(unittest.TestCase):
             "OFFICE_MAX_FILES_PER_REQUEST=10",
             "OFFICE_CONVERT_TIMEOUT_SECONDS=300",
             "OFFICE_MAX_CONCURRENT_CONVERSIONS=1",
+            "OFFICE_UPSTREAM_CONNECT_TIMEOUT_SECONDS=10",
+            "OFFICE_UPSTREAM_READ_TIMEOUT_SECONDS=3600",
+            "OFFICE_UPSTREAM_WRITE_TIMEOUT_SECONDS=300",
+            "OFFICE_UPSTREAM_POOL_TIMEOUT_SECONDS=30",
+            "OFFICE_UPSTREAM_HEALTH_TIMEOUT_SECONDS=5",
             "OFFICE_TMP_DIR=/tmp/mineru-office",
             "OFFICE_EXTRA_FONT_DIR=/opt/office-fonts",
         ):
@@ -97,6 +107,11 @@ class OfficeGatewayDeploymentTests(unittest.TestCase):
             "Checking Office gateway and LibreOffice",
             "docker exec mineru-office-gateway libreoffice --version",
             "/mineru/health",
+            "Checking real Office conversion through gateway",
+            "/mineru/file_parse",
+            "response_format_zip=true",
+            "zipfile.ZipFile",
+            "find /tmp/mineru-office",
             "docker logs --tail 40 mineru-office-gateway",
         ):
             self.assertIn(expected, script)
@@ -112,6 +127,9 @@ class OfficeGatewayDeploymentTests(unittest.TestCase):
             "Office/PDF/image batch returns HTTP 400",
             "return_original_file=true",
             "LibreOffice cannot guarantee Microsoft Office rendering",
+            "OFFICE_UPSTREAM_READ_TIMEOUT_SECONDS",
+            "streaming multipart parser",
+            "real DOCX",
             "files=@sample.doc",
             "files=@sample.docx",
         ):

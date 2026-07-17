@@ -3,9 +3,10 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
+from starlette.datastructures import FormData
 
 from app.main import create_app
 from app.render import OfficeRenderError, OfficeRenderTimeout
@@ -110,6 +111,41 @@ class MainApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'filename="report.docx"', captured)
         self.assertNotIn(b'name="office_mode"', captured)
 
+    async def test_same_stem_office_files_use_distinct_render_directories(self):
+        def distinguishing_renderer(source, render_root, binary, timeout_seconds):
+            output = render_root / "rendered" / f"{source.stem}.pdf"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"%PDF-" + source.parent.name.encode())
+            return output
+
+        self.app.state.renderer = distinguishing_renderer
+        response = await self.client.post(
+            "/tasks",
+            files=[
+                (
+                    "files",
+                    (
+                        "report.docx",
+                        minimal_docx_bytes(),
+                        "application/octet-stream",
+                    ),
+                ),
+                (
+                    "files",
+                    (
+                        "report.docx",
+                        minimal_docx_bytes(),
+                        "application/octet-stream",
+                    ),
+                ),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 202)
+        captured = self.router_requests[-1].content
+        self.assertEqual(captured.count(b"%PDF-0"), 1)
+        self.assertEqual(captured.count(b"%PDF-1"), 1)
+
     async def test_mixed_batch_returns_400(self):
         response = await self.client.post(
             "/tasks",
@@ -130,6 +166,26 @@ class MainApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.json()["stage"], "upload")
+
+    async def test_submit_does_not_use_unbounded_request_form_parser(self):
+        with patch(
+            "starlette.requests.Request.form",
+            new=AsyncMock(return_value=FormData()),
+        ):
+            response = await self.client.post(
+                "/tasks",
+                files=[
+                    (
+                        "files",
+                        (
+                            "report.docx",
+                            minimal_docx_bytes(),
+                            "application/octet-stream",
+                        ),
+                    )
+                ],
+            )
+        self.assertEqual(response.status_code, 202)
 
     async def test_render_errors_have_stable_status_codes(self):
         for error, expected in (
@@ -174,6 +230,18 @@ class MainApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["gateway"], "ok")
         self.assertEqual(response.json()["libreoffice"], "ok")
         self.assertEqual(response.json()["mineru"], "ok")
+        timeout = self.router_requests[-1].extensions["timeout"]
+        self.assertEqual(timeout["connect"], 5)
+        self.assertEqual(timeout["read"], 5)
+        self.assertEqual(timeout["write"], 5)
+        self.assertEqual(timeout["pool"], 5)
+
+    async def test_upstream_client_uses_bounded_timeouts(self):
+        timeout = self.app.state.client.timeout
+        self.assertEqual(timeout.connect, 10)
+        self.assertEqual(timeout.read, 3600)
+        self.assertEqual(timeout.write, 300)
+        self.assertEqual(timeout.pool, 30)
 
 
 if __name__ == "__main__":

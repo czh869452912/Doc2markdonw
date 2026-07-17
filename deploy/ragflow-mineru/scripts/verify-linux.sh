@@ -101,7 +101,9 @@ docker ps \
 PUBLIC_PORT="$(read_env PUBLIC_PORT 18080)"
 COMPOSE_PROFILES="$(read_env COMPOSE_PROFILES '')"
 GRADIO_HTML="/tmp/mineru-gradio.html"
-trap 'rm -f "$GRADIO_HTML"' EXIT
+OFFICE_FIXTURE="/tmp/mineru-office-smoke.docx"
+OFFICE_RESULT="/tmp/mineru-office-smoke.zip"
+trap 'rm -f "$GRADIO_HTML" "$OFFICE_FIXTURE" "$OFFICE_RESULT"' EXIT
 
 echo
 echo "Checking gateway RAGFlow route..."
@@ -118,6 +120,53 @@ echo "Checking Office gateway and LibreOffice..."
 docker exec mineru-office-gateway libreoffice --version
 curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/mineru/health" >/dev/null
 echo "Office gateway and LibreOffice are reachable."
+
+echo
+echo "Checking real Office conversion through gateway..."
+docker exec -i mineru-office-gateway python3 - <<'PY' >"$OFFICE_FIXTURE"
+from io import BytesIO
+import sys
+from zipfile import ZIP_DEFLATED, ZipFile
+
+parts = {
+    "[Content_Types].xml": """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>""",
+    "_rels/.rels": """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>""",
+    "word/document.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>Offline Office smoke test</w:t></w:r></w:p>
+<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body>
+</w:document>""",
+}
+output = BytesIO()
+with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+    for name, content in parts.items():
+        archive.writestr(name, content)
+sys.stdout.buffer.write(output.getvalue())
+PY
+curl -fsS -X POST \
+  "http://127.0.0.1:${PUBLIC_PORT}/mineru/file_parse" \
+  -F "files=@${OFFICE_FIXTURE};type=application/vnd.openxmlformats-officedocument.wordprocessingml.document" \
+  -F "office_mode=pdf_ocr" \
+  -F "return_md=true" \
+  -F "response_format_zip=true" \
+  -o "$OFFICE_RESULT"
+docker exec -i mineru-office-gateway python3 -c \
+  'import io,sys,zipfile; z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())); m=[n for n in z.namelist() if n.endswith(".md")]; assert m and any(z.read(n).strip() for n in m)' \
+  <"$OFFICE_RESULT"
+if docker exec mineru-office-gateway sh -c \
+  'find /tmp/mineru-office -mindepth 1 -maxdepth 1 -print -quit | grep -q .'; then
+  echo "Office gateway left request files under /tmp/mineru-office" >&2
+  exit 1
+fi
+echo "Real Office conversion produced non-empty Markdown and cleaned temporary files."
 
 if profile_enabled "mineru-ui"; then
   echo

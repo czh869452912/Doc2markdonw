@@ -21,6 +21,11 @@ class Settings:
     tmp_dir: Path
     extra_font_dir: Path | None
     libreoffice_binary: str
+    upstream_connect_timeout_seconds: int = 10
+    upstream_read_timeout_seconds: int = 3600
+    upstream_write_timeout_seconds: int = 300
+    upstream_pool_timeout_seconds: int = 30
+    upstream_health_timeout_seconds: int = 5
 
 
 def _positive_int(name: str, default: str) -> int:
@@ -53,4 +58,19 @@ def get_settings() -> Settings:
         tmp_dir=Path(os.getenv("OFFICE_TMP_DIR", "/tmp/mineru-office")),
         extra_font_dir=Path(extra_fonts) if extra_fonts else None,
         libreoffice_binary=os.getenv("OFFICE_LIBREOFFICE_BINARY", "libreoffice"),
+        upstream_connect_timeout_seconds=_positive_int(
+            "OFFICE_UPSTREAM_CONNECT_TIMEOUT_SECONDS", "10"
+        ),
+        upstream_read_timeout_seconds=_positive_int(
+            "OFFICE_UPSTREAM_READ_TIMEOUT_SECONDS", "3600"
+        ),
+        upstream_write_timeout_seconds=_positive_int(
+            "OFFICE_UPSTREAM_WRITE_TIMEOUT_SECONDS", "300"
+        ),
+        upstream_pool_timeout_seconds=_positive_int(
+            "OFFICE_UPSTREAM_POOL_TIMEOUT_SECONDS", "30"
+        ),
+        upstream_health_timeout_seconds=_positive_int(
+            "OFFICE_UPSTREAM_HEALTH_TIMEOUT_SECONDS", "5"
+        ),
     )

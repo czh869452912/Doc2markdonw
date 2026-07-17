@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import UploadFile
 
 from .files import BatchKind, classify_file, resolve_batch_mode
-from .multipart import UploadLimitError, copy_upload, office_fields
+from .multipart import UploadLimitError, copy_upload, office_fields, parse_multipart
 from .render import OfficeRenderError, OfficeRenderTimeout, render_to_pdf
 from .settings import Settings, get_settings
 from .upstream import send_upstream
@@ -35,7 +35,12 @@ def create_app(
         configured_settings.tmp_dir.mkdir(parents=True, exist_ok=True)
         application.state.settings = configured_settings
         application.state.client = httpx.AsyncClient(
-            timeout=None,
+            timeout=httpx.Timeout(
+                connect=configured_settings.upstream_connect_timeout_seconds,
+                read=configured_settings.upstream_read_timeout_seconds,
+                write=configured_settings.upstream_write_timeout_seconds,
+                pool=configured_settings.upstream_pool_timeout_seconds,
+            ),
             follow_redirects=False,
             transport=upstream_transport,
         )
@@ -78,7 +83,8 @@ def create_app(
 
         try:
             upstream = await request.app.state.client.get(
-                f"{current.upstream_url}/health"
+                f"{current.upstream_url}/health",
+                timeout=current.upstream_health_timeout_seconds,
             )
             if 200 <= upstream.status_code < 300:
                 mineru_status = "ok"
@@ -99,7 +105,12 @@ def create_app(
         current: Settings = request.app.state.settings
         uploads: list[tuple[str, UploadFile]] = []
         try:
-            form = await request.form()
+            form = await parse_multipart(
+                request.headers,
+                request.stream(),
+                max_files=current.max_files,
+                max_file_bytes=current.max_file_bytes,
+            )
             items = list(form.multi_items())
             uploads = [
                 (name, value)
@@ -156,15 +167,23 @@ def create_app(
                 handles = []
                 upstream_files = []
                 try:
-                    for field_name, upload, source, classified in prepared:
+                    for render_index, (
+                        field_name,
+                        upload,
+                        source,
+                        classified,
+                    ) in enumerate(prepared):
                         forwarded = source
                         content_type = upload.content_type or "application/octet-stream"
                         if mode == "pdf_ocr" and classified.kind == BatchKind.OFFICE:
+                            render_root = (
+                                request_root / "conversions" / str(render_index)
+                            )
                             async with request.app.state.render_slots:
                                 forwarded = await asyncio.to_thread(
                                     request.app.state.renderer,
                                     source,
-                                    request_root,
+                                    render_root,
                                     current.libreoffice_binary,
                                     current.convert_timeout_seconds,
                                 )

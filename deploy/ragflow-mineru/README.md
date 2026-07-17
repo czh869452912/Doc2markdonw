@@ -140,10 +140,11 @@ rejects any other required browser request to an external host. Container
 port 7860 remains private and only the public gateway exposes `PUBLIC_PORT`.
 
 The default package enables the `mineru-ui` profile. For an API-only deployment,
-omit `mineru-ui` with the explicit `-ComposeProfiles` example above. The UI
-image is derived from the selected MinerU image and guarded for MinerU 3.4.2,
-Gradio 6.8.0, `gradio-pdf` 0.0.24, and PDF.js 4.2.67; rebuild and reverify the
-thin image whenever those versions change.
+omit `mineru-ui` with the explicit `-ComposeProfiles` example above. The gateway
+continues to start and `/mineru-ui/` returns HTTP 503 when the UI service is not
+enabled. The UI image is derived from the selected MinerU image and verified
+against MinerU 3.4.2, Gradio 6.8.0, `gradio-pdf` 0.0.24, and PDF.js 4.2.67;
+rebuild and reverify the thin image whenever those versions change.
 
 ## Deployment lifecycle
 
@@ -252,6 +253,19 @@ parity: proprietary fonts, password-protected or rights-managed documents,
 macros, ActiveX, embedded OLE applications, and external linked objects may
 fail or look different. Mount organization fonts under
 `ragflow/docker/office-fonts`; the container refreshes its font cache at start.
+
+The gateway's streaming multipart parser enforces `OFFICE_MAX_FILE_BYTES` and
+`OFFICE_MAX_FILES_PER_REQUEST` while the request is consumed, before an entire
+oversized upload can be spooled. Router calls use bounded, configurable
+connect/read/write/pool timeouts; the long OCR read limit defaults to 3600
+seconds through `OFFICE_UPSTREAM_READ_TIMEOUT_SECONDS`. Router health probes
+use the independent 5-second `OFFICE_UPSTREAM_HEALTH_TIMEOUT_SECONDS` limit.
+The related variables are listed in `env/airgap.env.example`.
+
+`verify-linux.sh` submits a real DOCX through `/mineru/file_parse`, validates
+that the result ZIP contains non-empty Markdown, and checks that the Office
+gateway request directory is empty afterward. This verification invokes a real
+MinerU OCR job and can take several minutes on first GPU warm-up.
 
 ## Markdown Convert
 

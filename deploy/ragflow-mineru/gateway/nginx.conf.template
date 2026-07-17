@@ -38,7 +38,11 @@ server {
     }
 
     location /mineru-ui/ {
-        proxy_pass http://mineru-gradio:7860/;
+        resolver 127.0.0.11 valid=30s ipv6=off;
+        resolver_timeout 2s;
+        set $mineru_gradio_upstream mineru-gradio:7860;
+        rewrite ^/mineru-ui/(.*)$ /$1 break;
+        proxy_pass http://$mineru_gradio_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-Host $http_host;
@@ -49,6 +53,8 @@ server {
         proxy_set_header Connection $connection_upgrade;
         proxy_set_header Accept-Encoding "";
         proxy_buffering off;
+        proxy_intercept_errors on;
+        error_page 502 504 =503 @mineru_ui_unavailable;
         sub_filter_types application/json application/javascript text/javascript text/css;
         sub_filter_once off;
         sub_filter 'https://fonts.googleapis.com' '/mineru-ui/_offline/google-fonts';
@@ -57,6 +63,11 @@ server {
         sub_filter 'https://use.fontawesome.com/releases/v5.15.4/css/all.css' '/mineru-ui/_offline/empty.css';
         sub_filter 'https://img.shields.io/github/stars/opendatalab/MinerU.svg' 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
         add_header Content-Security-Policy "default-src 'self' data: blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self'; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:;" always;
+    }
+
+    location @mineru_ui_unavailable {
+        default_type application/json;
+        return 503 '{"detail":"MinerU Gradio UI is disabled or unavailable"}';
     }
 
     location / {
