@@ -17,7 +17,7 @@ services:
       - ragflow
     depends_on:
       - md-convert-api
-      - mineru-router
+      - mineru-office-gateway
 
   ragflow-cpu:
     ports: []

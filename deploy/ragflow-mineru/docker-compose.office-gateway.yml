@@ -1,0 +1,40 @@
+services:
+  mineru-office-gateway:
+    image: ${MINERU_OFFICE_GATEWAY_IMAGE:-mineru-office-gateway:latest}
+    container_name: mineru-office-gateway
+    profiles:
+      - mineru-office
+    restart: unless-stopped
+    environment:
+      MINERU_UPSTREAM_URL: ${MINERU_UPSTREAM_URL:-http://mineru-router:8002}
+      OFFICE_DEFAULT_MODE: ${OFFICE_DEFAULT_MODE:-pdf_ocr}
+      OFFICE_PARSE_METHOD: ${OFFICE_PARSE_METHOD:-ocr}
+      OFFICE_BACKEND: ${OFFICE_BACKEND:-pipeline}
+      OFFICE_MAX_FILE_BYTES: ${OFFICE_MAX_FILE_BYTES:-104857600}
+      OFFICE_MAX_FILES_PER_REQUEST: ${OFFICE_MAX_FILES_PER_REQUEST:-10}
+      OFFICE_CONVERT_TIMEOUT_SECONDS: ${OFFICE_CONVERT_TIMEOUT_SECONDS:-300}
+      OFFICE_MAX_CONCURRENT_CONVERSIONS: ${OFFICE_MAX_CONCURRENT_CONVERSIONS:-1}
+      OFFICE_TMP_DIR: ${OFFICE_TMP_DIR:-/tmp/mineru-office}
+      OFFICE_EXTRA_FONT_DIR: ${OFFICE_EXTRA_FONT_DIR:-/opt/office-fonts}
+    volumes:
+      - ./office-fonts:/opt/office-fonts:ro
+    depends_on:
+      - mineru-router
+    networks:
+      - ragflow
+    tmpfs:
+      - /tmp:size=${OFFICE_TMPFS_SIZE:-1g},mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${OFFICE_MEMORY_LIMIT:-2g}
+    cpus: ${OFFICE_CPU_LIMIT:-2.0}
+    pids_limit: ${OFFICE_PIDS_LIMIT:-256}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
