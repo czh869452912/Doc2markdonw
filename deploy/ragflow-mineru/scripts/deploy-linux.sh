@@ -208,6 +208,7 @@ prepare_compose_v1_files() {
 
   write_compose_v1_file "$docker_dir/docker-compose.yml" "$docker_dir/docker-compose.v1.yml" "$has_include"
   write_compose_v1_file "$docker_dir/docker-compose.mineru.yml" "$docker_dir/docker-compose.mineru.v1.yml" 0
+  write_compose_v1_file "$docker_dir/docker-compose.office-gateway.yml" "$docker_dir/docker-compose.office-gateway.v1.yml" 0
   write_compose_v1_file "$docker_dir/docker-compose.md-convert.yml" "$docker_dir/docker-compose.md-convert.v1.yml" 0
   write_compose_v1_file "$docker_dir/docker-compose.gateway.yml" "$docker_dir/docker-compose.gateway.v1.yml" 0
 }
@@ -220,6 +221,7 @@ prepare_runtime_compose_files() {
   local required_files=(
     docker-compose.yml
     docker-compose.mineru.yml
+    docker-compose.office-gateway.yml
     docker-compose.md-convert.yml
     docker-compose.gateway.yml
   )
@@ -240,6 +242,7 @@ prepare_runtime_compose_files() {
   compose_files+=(
     -f docker-compose.v1.yml
     -f docker-compose.mineru.v1.yml
+    -f docker-compose.office-gateway.v1.yml
     -f docker-compose.md-convert.v1.yml
     -f docker-compose.gateway.v1.yml
   )
@@ -326,6 +329,11 @@ if [[ ! -f "$SOURCE_DOCKER_DIR/docker-compose.mineru.yml" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$SOURCE_DOCKER_DIR/docker-compose.office-gateway.yml" ]]; then
+  echo "Package is missing ragflow/docker/docker-compose.office-gateway.yml: $SOURCE_DOCKER_DIR" >&2
+  exit 1
+fi
+
 if [[ ! -f "$SOURCE_DOCKER_DIR/docker-compose.md-convert.yml" ]]; then
   echo "Package is missing ragflow/docker/docker-compose.md-convert.yml: $SOURCE_DOCKER_DIR" >&2
   exit 1
@@ -355,6 +363,7 @@ mkdir -p \
   "$TARGET_DOCKER_DIR/ragflow-logs" \
   "$TARGET_DOCKER_DIR/mineru-input" \
   "$TARGET_DOCKER_DIR/mineru-output" \
+  "$TARGET_DOCKER_DIR/office-fonts" \
   "$TARGET_DOCKER_DIR/md-convert-data"
 
 chmod +x "$PACKAGE_DIR"/scripts/*.sh || true

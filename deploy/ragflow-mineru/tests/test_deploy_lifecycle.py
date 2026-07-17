@@ -17,6 +17,7 @@ UNPACKED_PACKAGE = (
 COMPOSE_FILES = (
     "docker-compose.yml",
     "docker-compose.mineru.yml",
+    "docker-compose.office-gateway.yml",
     "docker-compose.md-convert.yml",
     "docker-compose.gateway.yml",
 )

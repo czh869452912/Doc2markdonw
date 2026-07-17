@@ -69,6 +69,28 @@ class OfficeGatewayDeploymentTests(unittest.TestCase):
         ):
             self.assertIn(assignment, env)
 
+    def test_windows_packaging_builds_and_records_office_gateway(self):
+        script = read(STACK / "scripts" / "package-windows.ps1")
+        for expected in (
+            '[string]$MineruOfficeGatewayImage = "mineru-office-gateway:latest"',
+            "[switch]$SkipOfficeGatewayBuild",
+            '"docker-compose.office-gateway.yml"',
+            '"services\\mineru-office-gateway"',
+            '"office-gateway-source"',
+            '"MINERU_OFFICE_GATEWAY_IMAGE"',
+            '"mineru-office"',
+            "mineruOfficeGatewayImage = $MineruOfficeGatewayImage",
+        ):
+            self.assertIn(expected, script)
+
+    def test_linux_lifecycle_includes_fifth_compose_file(self):
+        script = read(STACK / "scripts" / "deploy-linux.sh")
+        self.assertGreaterEqual(
+            script.count("docker-compose.office-gateway.yml"),
+            3,
+        )
+        self.assertIn("docker-compose.office-gateway.v1.yml", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,12 +10,14 @@ param(
     [string]$Device = "gpu",
     [string]$RagflowImage = "",
     [string]$MineruImage = "mineru:latest",
+    [string]$MineruOfficeGatewayImage = "mineru-office-gateway:latest",
     [string]$MdConvertImage = "md-convert:latest",
     [string]$GatewayImage = "nginx:1.27-alpine",
     [string]$KrokiImage = "yuzutech/kroki:latest",
     [string]$KrokiMermaidImage = "yuzutech/kroki-mermaid:latest",
     [string]$ComposeProfiles = "",
     [switch]$BuildMineru,
+    [switch]$SkipOfficeGatewayBuild,
     [switch]$SkipMdConvertBuild,
     [switch]$SkipPull,
     [switch]$SkipImageSave,
@@ -226,6 +228,7 @@ function Get-ComposeImages {
             "--env-file", ".env",
             "-f", "docker-compose.yml",
             "-f", "docker-compose.mineru.yml",
+            "-f", "docker-compose.office-gateway.yml",
             "-f", "docker-compose.md-convert.yml",
             "-f", "docker-compose.gateway.yml",
             "config",
@@ -269,10 +272,12 @@ Clone-Repo -Url "https://github.com/infiniflow/ragflow.git" -Ref $RagflowRef -De
 
 Copy-DirectoryFresh -Source (Join-Path $ragflowCache "docker") -Destination $packageDockerDir
 Copy-Item -Force -Path (Join-Path $StackDir "docker-compose.mineru.yml") -Destination (Join-Path $packageDockerDir "docker-compose.mineru.yml")
+Copy-Item -Force -Path (Join-Path $StackDir "docker-compose.office-gateway.yml") -Destination (Join-Path $packageDockerDir "docker-compose.office-gateway.yml")
 Copy-Item -Force -Path (Join-Path $StackDir "docker-compose.md-convert.yml") -Destination (Join-Path $packageDockerDir "docker-compose.md-convert.yml")
 Copy-Item -Force -Path (Join-Path $StackDir "docker-compose.gateway.yml") -Destination (Join-Path $packageDockerDir "docker-compose.gateway.yml")
 Copy-DirectoryFresh -Source (Join-Path $StackDir "gateway") -Destination (Join-Path $packageDockerDir "gateway")
 Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\md-convert") -Destination (Join-Path $packageDir "md-convert-source")
+Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\mineru-office-gateway") -Destination (Join-Path $packageDir "office-gateway-source")
 Copy-Item -Force -Path (Join-Path $StackDir "README.md") -Destination (Join-Path $packageDir "README.md")
 Copy-Item -Force -Path (Join-Path $ScriptDir "deploy-linux.sh") -Destination $packageScriptsDir
 Copy-Item -Force -Path (Join-Path $ScriptDir "verify-linux.sh") -Destination $packageScriptsDir
@@ -281,6 +286,7 @@ New-Item -ItemType Directory -Force -Path `
     (Join-Path $packageDockerDir "ragflow-logs"), `
     (Join-Path $packageDockerDir "mineru-input"), `
     (Join-Path $packageDockerDir "mineru-output"), `
+    (Join-Path $packageDockerDir "office-fonts"), `
     (Join-Path $packageDockerDir "md-convert-data") | Out-Null
 
 if ([string]::IsNullOrWhiteSpace($RagflowImage)) {
@@ -288,7 +294,7 @@ if ([string]::IsNullOrWhiteSpace($RagflowImage)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ComposeProfiles)) {
-    $ComposeProfiles = "$DocEngine,$Device,mineru,md-convert,gateway"
+    $ComposeProfiles = "$DocEngine,$Device,mineru,mineru-office,md-convert,gateway"
 }
 
 $envPath = Join-Path $packageDockerDir ".env"
@@ -297,6 +303,7 @@ Set-EnvValue -Path $envPath -Key "DEVICE" -Value $Device
 Set-EnvValue -Path $envPath -Key "COMPOSE_PROFILES" -Value $ComposeProfiles
 Set-EnvValue -Path $envPath -Key "RAGFLOW_IMAGE" -Value $RagflowImage
 Set-EnvValue -Path $envPath -Key "MINERU_IMAGE" -Value $MineruImage
+Set-EnvValue -Path $envPath -Key "MINERU_OFFICE_GATEWAY_IMAGE" -Value $MineruOfficeGatewayImage
 Set-EnvValue -Path $envPath -Key "MD_CONVERT_IMAGE" -Value $MdConvertImage
 Set-EnvValue -Path $envPath -Key "GATEWAY_IMAGE" -Value $GatewayImage
 Set-EnvValue -Path $envPath -Key "KROKI_IMAGE" -Value $KrokiImage
@@ -319,14 +326,33 @@ Set-EnvValue -Path $envPath -Key "MINERU_LOCAL_GPUS" -Value "auto"
 Set-EnvValue -Path $envPath -Key "MINERU_NVIDIA_VISIBLE_DEVICES" -Value "all"
 Set-EnvValue -Path $envPath -Key "MINERU_CUDA_VISIBLE_DEVICES" -Value "0"
 Set-EnvValue -Path $envPath -Key "MINERU_SHM_SIZE" -Value "32g"
+Set-EnvValue -Path $envPath -Key "MINERU_UPSTREAM_URL" -Value "http://mineru-router:8002"
+Set-EnvValue -Path $envPath -Key "OFFICE_DEFAULT_MODE" -Value "pdf_ocr"
+Set-EnvValue -Path $envPath -Key "OFFICE_PARSE_METHOD" -Value "ocr"
+Set-EnvValue -Path $envPath -Key "OFFICE_BACKEND" -Value "pipeline"
+Set-EnvValue -Path $envPath -Key "OFFICE_MAX_FILE_BYTES" -Value "104857600"
+Set-EnvValue -Path $envPath -Key "OFFICE_MAX_FILES_PER_REQUEST" -Value "10"
+Set-EnvValue -Path $envPath -Key "OFFICE_CONVERT_TIMEOUT_SECONDS" -Value "300"
+Set-EnvValue -Path $envPath -Key "OFFICE_MAX_CONCURRENT_CONVERSIONS" -Value "1"
+Set-EnvValue -Path $envPath -Key "OFFICE_TMP_DIR" -Value "/tmp/mineru-office"
+Set-EnvValue -Path $envPath -Key "OFFICE_EXTRA_FONT_DIR" -Value "/opt/office-fonts"
+Set-EnvValue -Path $envPath -Key "OFFICE_TMPFS_SIZE" -Value "1g"
+Set-EnvValue -Path $envPath -Key "OFFICE_MEMORY_LIMIT" -Value "2g"
+Set-EnvValue -Path $envPath -Key "OFFICE_CPU_LIMIT" -Value "2.0"
+Set-EnvValue -Path $envPath -Key "OFFICE_PIDS_LIMIT" -Value "256"
 Set-EnvValue -Path $envPath -Key "USE_DOCLING" -Value "false"
 Apply-EnvOverrideFile -TargetPath $envPath -OverridePath $EnvOverridePath
-Ensure-EnvListValues -Path $envPath -Key "COMPOSE_PROFILES" -RequiredValues @("md-convert", "gateway")
+Ensure-EnvListValues -Path $envPath -Key "COMPOSE_PROFILES" -RequiredValues @("mineru", "mineru-office", "md-convert", "gateway")
 
 if ($BuildMineru) {
     $mineruCache = Join-Path $cacheDir ("MinerU-" + ($MineruRef -replace "[^A-Za-z0-9_.-]", "-"))
     Clone-Repo -Url "https://github.com/opendatalab/MinerU.git" -Ref $MineruRef -Destination $mineruCache
     Invoke-Checked -FilePath "docker" -Arguments @("build", "-t", $MineruImage, "-f", "docker/global/Dockerfile", ".") -WorkingDirectory $mineruCache
+}
+
+if (-not $SkipOfficeGatewayBuild) {
+    $officeGatewaySource = Join-Path $RepoRoot "services\mineru-office-gateway"
+    Invoke-Checked -FilePath "docker" -Arguments @("build", "-t", $MineruOfficeGatewayImage, ".") -WorkingDirectory $officeGatewaySource
 }
 
 if (-not $SkipMdConvertBuild) {
@@ -352,6 +378,10 @@ if (-not $SkipPull) {
 
         if ($image -eq $MdConvertImage -and $SkipMdConvertBuild) {
             throw "Markdown convert image '$MdConvertImage' is not present locally. Re-run without -SkipMdConvertBuild or build it before packaging."
+        }
+
+        if ($image -eq $MineruOfficeGatewayImage -and $SkipOfficeGatewayBuild) {
+            throw "Office gateway image '$MineruOfficeGatewayImage' is not present locally. Re-run without -SkipOfficeGatewayBuild or build it before packaging."
         }
 
         Invoke-Checked -FilePath "docker" -Arguments @("pull", $image)
@@ -383,6 +413,7 @@ $manifest = [ordered]@{
     docEngine = $DocEngine
     device = $Device
     composeProfiles = $ComposeProfiles
+    mineruOfficeGatewayImage = $MineruOfficeGatewayImage
     mdConvertImage = $MdConvertImage
     gatewayImage = $GatewayImage
     krokiImage = $KrokiImage
