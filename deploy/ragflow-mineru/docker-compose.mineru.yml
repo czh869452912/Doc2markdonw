@@ -46,7 +46,7 @@ services:
               capabilities: [gpu]
 
   mineru-gradio:
-    image: ${MINERU_IMAGE:-mineru:latest}
+    image: ${MINERU_GRADIO_IMAGE:-mineru-gradio-offline:latest}
     container_name: mineru-gradio
     profiles:
       - mineru-ui
@@ -58,12 +58,23 @@ services:
       MINERU_BACKEND: ${MINERU_BACKEND:-pipeline}
       NVIDIA_VISIBLE_DEVICES: ${MINERU_NVIDIA_VISIBLE_DEVICES:-all}
       CUDA_VISIBLE_DEVICES: ${MINERU_CUDA_VISIBLE_DEVICES:-0}
+      GRADIO_ROOT_PATH: ${MINERU_GRADIO_ROOT_PATH:-/mineru-ui}
+      GRADIO_ANALYTICS_ENABLED: "False"
+      GRADIO_SHARE: "False"
+      GRADIO_ALLOWED_PATHS: /opt/mineru-ui-assets
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      DO_NOT_TRACK: "1"
     entrypoint: mineru-gradio
     command:
       - --server-name
       - 0.0.0.0
       - --server-port
       - "7860"
+      - --api-url
+      - http://mineru-office-gateway:8081
+    depends_on:
+      - mineru-office-gateway
     volumes:
       - ./mineru-output:/tmp/mineru
       - ./mineru-input:/data/input:ro
