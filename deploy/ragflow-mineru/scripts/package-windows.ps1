@@ -10,6 +10,7 @@ param(
     [string]$Device = "gpu",
     [string]$RagflowImage = "",
     [string]$MineruImage = "mineru:latest",
+    [string]$MineruGradioImage = "mineru-gradio-offline:latest",
     [string]$MineruOfficeGatewayImage = "mineru-office-gateway:latest",
     [string]$MdConvertImage = "md-convert:latest",
     [string]$GatewayImage = "nginx:1.27-alpine",
@@ -17,6 +18,7 @@ param(
     [string]$KrokiMermaidImage = "yuzutech/kroki-mermaid:latest",
     [string]$ComposeProfiles = "",
     [switch]$BuildMineru,
+    [switch]$SkipMineruGradioBuild,
     [switch]$SkipOfficeGatewayBuild,
     [switch]$SkipMdConvertBuild,
     [switch]$SkipPull,
@@ -278,6 +280,7 @@ Copy-Item -Force -Path (Join-Path $StackDir "docker-compose.gateway.yml") -Desti
 Copy-DirectoryFresh -Source (Join-Path $StackDir "gateway") -Destination (Join-Path $packageDockerDir "gateway")
 Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\md-convert") -Destination (Join-Path $packageDir "md-convert-source")
 Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\mineru-office-gateway") -Destination (Join-Path $packageDir "office-gateway-source")
+Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\mineru-gradio-offline") -Destination (Join-Path $packageDir "mineru-gradio-offline-source")
 Copy-Item -Force -Path (Join-Path $StackDir "README.md") -Destination (Join-Path $packageDir "README.md")
 Copy-Item -Force -Path (Join-Path $ScriptDir "deploy-linux.sh") -Destination $packageScriptsDir
 Copy-Item -Force -Path (Join-Path $ScriptDir "verify-linux.sh") -Destination $packageScriptsDir
@@ -294,7 +297,7 @@ if ([string]::IsNullOrWhiteSpace($RagflowImage)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ComposeProfiles)) {
-    $ComposeProfiles = "$DocEngine,$Device,mineru,mineru-office,md-convert,gateway"
+    $ComposeProfiles = "$DocEngine,$Device,mineru,mineru-office,mineru-ui,md-convert,gateway"
 }
 
 $envPath = Join-Path $packageDockerDir ".env"
@@ -303,6 +306,8 @@ Set-EnvValue -Path $envPath -Key "DEVICE" -Value $Device
 Set-EnvValue -Path $envPath -Key "COMPOSE_PROFILES" -Value $ComposeProfiles
 Set-EnvValue -Path $envPath -Key "RAGFLOW_IMAGE" -Value $RagflowImage
 Set-EnvValue -Path $envPath -Key "MINERU_IMAGE" -Value $MineruImage
+Set-EnvValue -Path $envPath -Key "MINERU_GRADIO_IMAGE" -Value $MineruGradioImage
+Set-EnvValue -Path $envPath -Key "MINERU_GRADIO_ROOT_PATH" -Value "/mineru-ui"
 Set-EnvValue -Path $envPath -Key "MINERU_OFFICE_GATEWAY_IMAGE" -Value $MineruOfficeGatewayImage
 Set-EnvValue -Path $envPath -Key "MD_CONVERT_IMAGE" -Value $MdConvertImage
 Set-EnvValue -Path $envPath -Key "GATEWAY_IMAGE" -Value $GatewayImage
@@ -343,11 +348,24 @@ Set-EnvValue -Path $envPath -Key "OFFICE_PIDS_LIMIT" -Value "256"
 Set-EnvValue -Path $envPath -Key "USE_DOCLING" -Value "false"
 Apply-EnvOverrideFile -TargetPath $envPath -OverridePath $EnvOverridePath
 Ensure-EnvListValues -Path $envPath -Key "COMPOSE_PROFILES" -RequiredValues @("mineru", "mineru-office", "md-convert", "gateway")
+$ComposeProfiles = Get-EnvValue -Path $envPath -Key "COMPOSE_PROFILES"
+$profileValues = @($ComposeProfiles -split "," | ForEach-Object { $_.Trim() })
+$mineruUiEnabled = $profileValues -contains "mineru-ui"
 
 if ($BuildMineru) {
     $mineruCache = Join-Path $cacheDir ("MinerU-" + ($MineruRef -replace "[^A-Za-z0-9_.-]", "-"))
     Clone-Repo -Url "https://github.com/opendatalab/MinerU.git" -Ref $MineruRef -Destination $mineruCache
     Invoke-Checked -FilePath "docker" -Arguments @("build", "-t", $MineruImage, "-f", "docker/global/Dockerfile", ".") -WorkingDirectory $mineruCache
+}
+
+if ($mineruUiEnabled -and -not $SkipMineruGradioBuild) {
+    $gradioSource = Join-Path $RepoRoot "services\mineru-gradio-offline"
+    Invoke-Checked -FilePath "docker" -Arguments @(
+        "build",
+        "--build-arg", "MINERU_BASE_IMAGE=$MineruImage",
+        "-t", $MineruGradioImage,
+        $gradioSource
+    )
 }
 
 if (-not $SkipOfficeGatewayBuild) {
@@ -384,6 +402,10 @@ if (-not $SkipPull) {
             throw "Office gateway image '$MineruOfficeGatewayImage' is not present locally. Re-run without -SkipOfficeGatewayBuild or build it before packaging."
         }
 
+        if ($image -eq $MineruGradioImage -and $SkipMineruGradioBuild) {
+            throw "MinerU Gradio image '$MineruGradioImage' is not present locally. Re-run without -SkipMineruGradioBuild or build it before packaging."
+        }
+
         Invoke-Checked -FilePath "docker" -Arguments @("pull", $image)
     }
 }
@@ -413,6 +435,7 @@ $manifest = [ordered]@{
     docEngine = $DocEngine
     device = $Device
     composeProfiles = $ComposeProfiles
+    mineruGradioImage = $MineruGradioImage
     mineruOfficeGatewayImage = $MineruOfficeGatewayImage
     mdConvertImage = $MdConvertImage
     gatewayImage = $GatewayImage
