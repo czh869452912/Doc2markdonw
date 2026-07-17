@@ -103,6 +103,12 @@ curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/mineru/health" >/dev/null
 echo "MinerU health endpoint is reachable through gateway."
 
 echo
+echo "Checking Office gateway and LibreOffice..."
+docker exec mineru-office-gateway libreoffice --version
+curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/mineru/health" >/dev/null
+echo "Office gateway and LibreOffice are reachable."
+
+echo
 echo "Checking gateway Markdown Convert route..."
 curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/convert/api/health" >/dev/null
 echo "Markdown Convert health endpoint is reachable through gateway."
@@ -110,6 +116,10 @@ echo "Markdown Convert health endpoint is reachable through gateway."
 echo
 echo "Recent MinerU logs:"
 docker logs --tail 40 mineru-router || true
+
+echo
+echo "Recent Office gateway logs:"
+docker logs --tail 40 mineru-office-gateway || true
 
 echo
 echo "Recent Markdown Convert logs:"

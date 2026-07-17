@@ -2,7 +2,9 @@
 
 This repository prepares an offline deployment bundle for an intranet document
 conversion service based on RAGFlow, MinerU, and a lightweight Markdown
-conversion service.
+conversion service. A separate `mineru-office-gateway` container uses
+LibreOffice to render DOC/DOCX/PPT/PPTX/XLS/XLSX files before the unchanged
+MinerU API performs OCR; it does not depend on Microsoft Office Online.
 
 The intended flow is:
 

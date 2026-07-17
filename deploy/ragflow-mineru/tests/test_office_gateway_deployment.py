@@ -91,6 +91,33 @@ class OfficeGatewayDeploymentTests(unittest.TestCase):
         )
         self.assertIn("docker-compose.office-gateway.v1.yml", script)
 
+    def test_linux_verification_checks_office_runtime(self):
+        script = read(STACK / "scripts" / "verify-linux.sh")
+        for expected in (
+            "Checking Office gateway and LibreOffice",
+            "docker exec mineru-office-gateway libreoffice --version",
+            "/mineru/health",
+            "docker logs --tail 40 mineru-office-gateway",
+        ):
+            self.assertIn(expected, script)
+
+    def test_documentation_covers_offline_office_behavior_and_limits(self):
+        deployment_readme = read(STACK / "README.md")
+        root_readme = read(ROOT / "README.md")
+        for expected in (
+            "pdf_ocr",
+            "office_mode=native",
+            "DOC, PPT, XLS",
+            "DOCX, PPTX, XLSX",
+            "Office/PDF/image batch returns HTTP 400",
+            "return_original_file=true",
+            "LibreOffice cannot guarantee Microsoft Office rendering",
+            "files=@sample.doc",
+            "files=@sample.docx",
+        ):
+            self.assertIn(expected, deployment_readme)
+        self.assertIn("mineru-office-gateway", root_readme)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,8 @@ with Docker, Docker Compose v2, NVIDIA driver, and nvidia-container-toolkit.
 - Upstream RAGFlow `docker/` files pinned to a selected tag.
 - `docker-compose.mineru.yml`, which adds `mineru-router` and optional
   `mineru-gradio` services to the same Docker network.
+- `docker-compose.office-gateway.yml`, which adds the CPU-only LibreOffice
+  preprocessing gateway for Office inputs.
 - `docker-compose.md-convert.yml`, which adds FastAPI, RQ worker, Kroki, and
   kroki-mermaid for Markdown conversion.
 - `docker-compose.gateway.yml`, which exposes a single configurable public
@@ -33,7 +35,8 @@ Recommended command:
 ```
 
 This creates `dist\ragflow-mineru-airgap-<version>-<time>\` and a zip archive.
-By default it also builds `md-convert:latest` locally and saves the Markdown
+By default it also builds `mineru-office-gateway:latest` and
+`md-convert:latest` locally and saves the Office conversion, Markdown
 conversion, gateway, Kroki, and kroki-mermaid images into the offline bundle.
 
 Useful options:
@@ -44,6 +47,9 @@ Useful options:
 
 # Package without rebuilding md-convert if md-convert:latest already exists locally.
 .\deploy\ragflow-mineru\scripts\package-windows.ps1 -SkipMdConvertBuild
+
+# Package without rebuilding the Office gateway if its image already exists locally.
+.\deploy\ragflow-mineru\scripts\package-windows.ps1 -SkipOfficeGatewayBuild
 
 # Also enable MinerU's Gradio UI in addition to RAGFlow WebUI.
 .\deploy\ragflow-mineru\scripts\package-windows.ps1 -BuildMineru -ComposeProfiles "infinity,gpu,mineru,mineru-ui,md-convert,gateway"
@@ -167,6 +173,57 @@ curl -X POST http://<server>:<PUBLIC_PORT>/mineru/file_parse \
   -o result.zip
 ```
 
+## Offline Office inputs
+
+The public MinerU API accepts legacy `DOC, PPT, XLS` and modern
+`DOCX, PPTX, XLSX` files through `mineru-office-gateway`. The default
+`pdf_ocr` mode renders Office files locally with LibreOffice and sends the
+resulting PDF to the unchanged MinerU Router with OCR enabled. Normal clients
+do not need to send an extra field.
+
+Synchronous DOCX conversion with the explicit default mode:
+
+```bash
+curl -X POST http://<server>:<PUBLIC_PORT>/mineru/file_parse \
+  -F "files=@sample.docx" \
+  -F "office_mode=pdf_ocr" \
+  -F "return_md=true" \
+  -F "response_format_zip=true" \
+  -o result.zip
+```
+
+Asynchronous legacy DOC conversion uses the same endpoint contract and returns
+the original MinerU task ID:
+
+```bash
+curl -X POST http://<server>:<PUBLIC_PORT>/mineru/tasks \
+  -F "files=@sample.doc" \
+  -F "return_md=true"
+```
+
+For clean OOXML files where semantic extraction matters more than rendered
+layout, use `office_mode=native` to forward the original DOCX/PPTX/XLSX to
+MinerU. Native mode is rejected for DOC/PPT/XLS.
+
+```bash
+curl -X POST http://<server>:<PUBLIC_PORT>/mineru/tasks \
+  -F "files=@sample.docx" \
+  -F "office_mode=native" \
+  -F "return_md=true"
+```
+
+A request may contain only Office files or only PDF/images. A mixed
+Office/PDF/image batch returns HTTP 400; submit those groups separately. In
+`pdf_ocr` mode, `return_original_file=true` returns the rendered PDF submitted
+to MinerU, not the original Office package.
+
+All rendering is local and requires no Microsoft Office Online or other
+internet service. LibreOffice cannot guarantee Microsoft Office rendering
+parity: proprietary fonts, password-protected or rights-managed documents,
+macros, ActiveX, embedded OLE applications, and external linked objects may
+fail or look different. Mount organization fonts under
+`ragflow/docker/office-fonts`; the container refreshes its font cache at start.
+
 ## Markdown Convert
 
 Open the WebUI:
@@ -231,9 +288,8 @@ HTTPS.
   conversion.
 - Use Markdown Convert when the source is already Markdown and must become
   Word/PDF/HTML while preserving LaTeX formulas and Mermaid diagrams.
-- For complex Word documents, convert DOCX to PDF with a controlled
-  LibreOffice/OnlyOffice step if layout fidelity matters, then send the PDF to
-  MinerU.
+- For complex Word documents, the Office gateway performs the controlled local
+  LibreOffice-to-PDF step before MinerU OCR.
 - Keep `mineru-output` if you need parsing artifacts for audits. Set
   `MINERU_DELETE_OUTPUT=1` only when storage pressure is more important.
 - If GPU memory is tight, restrict visible GPUs with
