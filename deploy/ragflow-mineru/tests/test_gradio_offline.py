@@ -33,6 +33,52 @@ class GradioOfflineDeploymentTests(unittest.TestCase):
         gateway = read(STACK / "docker-compose.gateway.yml")
         self.assertIn("mineru-gradio:\n    ports: []", gateway)
 
+    def test_windows_packaging_builds_selected_ui_image(self):
+        script = read(STACK / "scripts" / "package-windows.ps1")
+        for expected in (
+            '[string]$MineruGradioImage = "mineru-gradio-offline:latest"',
+            "[switch]$SkipMineruGradioBuild",
+            '"services\\mineru-gradio-offline"',
+            '"mineru-gradio-offline-source"',
+            '"MINERU_BASE_IMAGE=$MineruImage"',
+            '"MINERU_GRADIO_IMAGE"',
+            '"mineru-ui"',
+            "mineruGradioImage = $MineruGradioImage",
+        ):
+            self.assertIn(expected, script)
+
+    def test_deployment_summary_and_verification_cover_prefixed_ui(self):
+        deploy = read(STACK / "scripts" / "deploy-linux.sh")
+        verify = read(STACK / "scripts" / "verify-linux.sh")
+        self.assertIn("/mineru-ui/", deploy)
+        for expected in (
+            "COMPOSE_PROFILES",
+            "mineru-ui",
+            "Checking gateway MinerU Gradio route",
+            "/mineru-ui/",
+            "window.gradio_config",
+            "docker port mineru-gradio",
+            "/opt/mineru-ui-assets/pdf.worker.min.mjs",
+            "docker logs --tail 40 mineru-gradio",
+        ):
+            self.assertIn(expected, verify)
+
+    def test_documentation_defines_offline_ui_scope(self):
+        deployment_readme = read(STACK / "README.md")
+        root_readme = read(ROOT / "README.md")
+        for expected in (
+            "/mineru-ui/",
+            "mineru-gradio-offline",
+            "PDF preview",
+            "upload, conversion, and download",
+            "Office gateway",
+            "Microsoft Office Online iframe",
+            "port 7860",
+            "mineru-ui",
+        ):
+            self.assertIn(expected, deployment_readme)
+        self.assertIn("/mineru-ui/", root_readme)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -48,6 +48,14 @@ read_env() {
   printf '%s' "$default"
 }
 
+profile_enabled() {
+  local requested="$1"
+  case ",${COMPOSE_PROFILES}," in
+    *",${requested},"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "Missing .env: $ENV_FILE" >&2
   exit 1
@@ -91,6 +99,9 @@ docker ps \
   --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 PUBLIC_PORT="$(read_env PUBLIC_PORT 18080)"
+COMPOSE_PROFILES="$(read_env COMPOSE_PROFILES '')"
+GRADIO_HTML="/tmp/mineru-gradio.html"
+trap 'rm -f "$GRADIO_HTML"' EXIT
 
 echo
 echo "Checking gateway RAGFlow route..."
@@ -108,6 +119,19 @@ docker exec mineru-office-gateway libreoffice --version
 curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/mineru/health" >/dev/null
 echo "Office gateway and LibreOffice are reachable."
 
+if profile_enabled "mineru-ui"; then
+  echo
+  echo "Checking gateway MinerU Gradio route..."
+  curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/mineru-ui/" >"$GRADIO_HTML"
+  grep -Fq 'window.gradio_config' "$GRADIO_HTML"
+  if docker port mineru-gradio | grep -q .; then
+    echo "mineru-gradio must not publish a host port" >&2
+    exit 1
+  fi
+  docker exec mineru-gradio test -s /opt/mineru-ui-assets/pdf.worker.min.mjs
+  echo "MinerU Gradio is reachable through the gateway."
+fi
+
 echo
 echo "Checking gateway Markdown Convert route..."
 curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/convert/api/health" >/dev/null
@@ -120,6 +144,12 @@ docker logs --tail 40 mineru-router || true
 echo
 echo "Recent Office gateway logs:"
 docker logs --tail 40 mineru-office-gateway || true
+
+if profile_enabled "mineru-ui"; then
+  echo
+  echo "Recent MinerU Gradio logs:"
+  docker logs --tail 40 mineru-gradio || true
+fi
 
 echo
 echo "Recent Markdown Convert logs:"

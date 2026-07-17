@@ -36,8 +36,9 @@ Recommended command:
 
 This creates `dist\ragflow-mineru-airgap-<version>-<time>\` and a zip archive.
 By default it also builds `mineru-office-gateway:latest` and
-`md-convert:latest` locally and saves the Office conversion, Markdown
-conversion, gateway, Kroki, and kroki-mermaid images into the offline bundle.
+`mineru-gradio-offline:latest` alongside `md-convert:latest`, and saves all UI,
+Office conversion, Markdown conversion, gateway, Kroki, and kroki-mermaid
+images into the offline bundle.
 
 Useful options:
 
@@ -51,8 +52,11 @@ Useful options:
 # Package without rebuilding the Office gateway if its image already exists locally.
 .\deploy\ragflow-mineru\scripts\package-windows.ps1 -SkipOfficeGatewayBuild
 
-# Also enable MinerU's Gradio UI in addition to RAGFlow WebUI.
-.\deploy\ragflow-mineru\scripts\package-windows.ps1 -BuildMineru -ComposeProfiles "infinity,gpu,mineru,mineru-ui,md-convert,gateway"
+# API-only package without MinerU Gradio.
+.\deploy\ragflow-mineru\scripts\package-windows.ps1 -BuildMineru -ComposeProfiles "infinity,gpu,mineru,mineru-office,md-convert,gateway"
+
+# Reuse an already-built UI image when mineru-ui remains enabled.
+.\deploy\ragflow-mineru\scripts\package-windows.ps1 -BuildMineru -SkipMineruGradioBuild
 
 # Apply production passwords, ports, and GPU settings from an override file.
 Copy-Item .\deploy\ragflow-mineru\env\airgap.env.example .\airgap.prod.env
@@ -112,9 +116,32 @@ Default endpoints:
 
 - RAGFlow WebUI/API: `http://<server>:<PUBLIC_PORT>/`
 - MinerU API: `http://<server>:<PUBLIC_PORT>/mineru/`
+- MinerU Gradio: `http://<server>:<PUBLIC_PORT>/mineru-ui/`
 - Markdown Convert WebUI/API: `http://<server>:<PUBLIC_PORT>/convert/`
 
 The default `PUBLIC_PORT` is `18080`.
+
+## MinerU Gradio offline UI
+
+The `mineru-gradio-offline` image exposes MinerU Gradio only through
+`/mineru-ui/`. Its PDF preview worker and CMaps are pinned inside the image;
+PDF preview, upload, conversion, and download work without browser internet
+access. Office uploads use the same Office gateway as direct `/mineru/` API
+requests, so DOC/DOCX/PPT/PPTX/XLS/XLSX follow the documented `pdf_ocr` or
+native behavior.
+
+The existing Microsoft Office Online iframe is blocked and unavailable on an
+air-gapped network; this does not block conversion. Remote project or source
+links remain informational and work only when a user deliberately opens them
+from a connected client. The CSP rejects required browser requests to external
+hosts. Container port 7860 remains private and only the public gateway exposes
+`PUBLIC_PORT`.
+
+The default package enables the `mineru-ui` profile. For an API-only deployment,
+omit `mineru-ui` with the explicit `-ComposeProfiles` example above. The UI
+image is derived from the selected MinerU image and guarded for MinerU 3.4.2,
+Gradio 6.8.0, `gradio-pdf` 0.0.24, and PDF.js 4.2.67; rebuild and reverify the
+thin image whenever those versions change.
 
 ## Deployment lifecycle
 
