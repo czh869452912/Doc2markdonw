@@ -32,6 +32,11 @@ server {
         return 302 /mineru-ui/;
     }
 
+    location ^~ /mineru-ui/_offline/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        return 204;
+    }
+
     location /mineru-ui/ {
         proxy_pass http://mineru-gradio:7860/;
         proxy_http_version 1.1;
@@ -42,7 +47,15 @@ server {
         proxy_set_header X-Forwarded-Prefix /mineru-ui;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Accept-Encoding "";
         proxy_buffering off;
+        sub_filter_types application/json application/javascript text/javascript text/css;
+        sub_filter_once off;
+        sub_filter 'https://fonts.googleapis.com' '/mineru-ui/_offline/google-fonts';
+        sub_filter 'https://fonts.gstatic.com' '/mineru-ui/_offline/google-fonts-static';
+        sub_filter 'https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.3.1/iframeResizer.contentWindow.min.js' '/mineru-ui/_offline/empty.js';
+        sub_filter 'https://use.fontawesome.com/releases/v5.15.4/css/all.css' '/mineru-ui/_offline/empty.css';
+        sub_filter 'https://img.shields.io/github/stars/opendatalab/MinerU.svg' 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
         add_header Content-Security-Policy "default-src 'self' data: blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'self'; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:;" always;
     }
 

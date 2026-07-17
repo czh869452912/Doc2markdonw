@@ -133,9 +133,11 @@ native behavior.
 The existing Microsoft Office Online iframe is blocked and unavailable on an
 air-gapped network; this does not block conversion. Remote project or source
 links remain informational and work only when a user deliberately opens them
-from a connected client. The CSP rejects required browser requests to external
-hosts. Container port 7860 remains private and only the public gateway exposes
-`PUBLIC_PORT`.
+from a connected client. The gateway response filter replaces Gradio's
+Google Fonts and CDNJS references, MinerU's Font Awesome stylesheet, and its
+dynamic GitHub star badge with local or embedded empty resources. The CSP
+rejects any other required browser request to an external host. Container
+port 7860 remains private and only the public gateway exposes `PUBLIC_PORT`.
 
 The default package enables the `mineru-ui` profile. For an API-only deployment,
 omit `mineru-ui` with the explicit `-ComposeProfiles` example above. The UI

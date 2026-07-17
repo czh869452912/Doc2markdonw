@@ -29,6 +29,23 @@ class GradioOfflineDeploymentTests(unittest.TestCase):
         self.assertIn("proxy_buffering off", nginx)
         self.assertIn("Content-Security-Policy", nginx)
 
+    def test_nginx_rewrites_optional_browser_cdn_resources_locally(self):
+        nginx = read(STACK / "gateway" / "nginx.conf.template")
+        for expected in (
+            'location ^~ /mineru-ui/_offline/',
+            'proxy_set_header Accept-Encoding "";',
+            "sub_filter_once off;",
+            "sub_filter_types application/json application/javascript text/javascript text/css;",
+            "https://fonts.googleapis.com",
+            "https://fonts.gstatic.com",
+            "https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.3.1/iframeResizer.contentWindow.min.js",
+            "https://use.fontawesome.com/releases/v5.15.4/css/all.css",
+            "https://img.shields.io/github/stars/opendatalab/MinerU.svg",
+            "data:image/gif;base64,",
+            "/mineru-ui/_offline/",
+        ):
+            self.assertIn(expected, nginx)
+
     def test_gateway_override_keeps_gradio_port_private(self):
         gateway = read(STACK / "docker-compose.gateway.yml")
         self.assertIn("mineru-gradio:\n    ports: []", gateway)
@@ -57,6 +74,11 @@ class GradioOfflineDeploymentTests(unittest.TestCase):
             "Checking gateway MinerU Gradio route",
             "/mineru-ui/",
             "window.gradio_config",
+            "fonts.googleapis.com",
+            "fonts.gstatic.com",
+            "cdnjs.cloudflare.com",
+            "use.fontawesome.com",
+            "img.shields.io",
             "docker port mineru-gradio",
             "/opt/mineru-ui-assets/pdf.worker.min.mjs",
             "docker logs --tail 40 mineru-gradio",
@@ -73,6 +95,10 @@ class GradioOfflineDeploymentTests(unittest.TestCase):
             "upload, conversion, and download",
             "Office gateway",
             "Microsoft Office Online iframe",
+            "Google Fonts",
+            "Font Awesome",
+            "CDNJS",
+            "star badge",
             "port 7860",
             "mineru-ui",
         ):

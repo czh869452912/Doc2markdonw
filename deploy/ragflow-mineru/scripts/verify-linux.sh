@@ -124,6 +124,17 @@ if profile_enabled "mineru-ui"; then
   echo "Checking gateway MinerU Gradio route..."
   curl -fsS "http://127.0.0.1:${PUBLIC_PORT}/mineru-ui/" >"$GRADIO_HTML"
   grep -Fq 'window.gradio_config' "$GRADIO_HTML"
+  for forbidden in \
+    'fonts.googleapis.com' \
+    'fonts.gstatic.com' \
+    'cdnjs.cloudflare.com' \
+    'use.fontawesome.com' \
+    'img.shields.io'; do
+    if grep -Fq "$forbidden" "$GRADIO_HTML"; then
+      echo "MinerU Gradio still references external browser resource: $forbidden" >&2
+      exit 1
+    fi
+  done
   if docker port mineru-gradio | grep -q .; then
     echo "mineru-gradio must not publish a host port" >&2
     exit 1
