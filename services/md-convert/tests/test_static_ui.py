@@ -10,7 +10,7 @@ class StaticUiTests(unittest.TestCase):
         javascript = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('fetch("api/session")', javascript)
+        self.assertIn('fetch("api/session", { cache: "no-store" })', javascript)
         self.assertIn("md-convert-jobs:${session.session_id}", javascript)
         self.assertIn("removeJob(job.job_id)", javascript)
         self.assertIn('id="submit-button" type="submit" disabled', html)

@@ -1,6 +1,7 @@
 const form = document.querySelector("#convert-form");
 const button = document.querySelector("#submit-button");
 const jobsEl = document.querySelector("#jobs");
+const retrySession = document.querySelector("#retry-session");
 const renderMermaid = document.querySelector("#render_mermaid");
 const mermaidControls = [
   "#mermaid_format",
@@ -9,6 +10,8 @@ const mermaidControls = [
   "#mermaid_density",
 ].map((selector) => document.querySelector(selector));
 let storageKey = null;
+let memoryJobs = [];
+let storageUnavailable = false;
 
 function syncMermaidControls() {
   mermaidControls.forEach((control) => {
@@ -17,13 +20,15 @@ function syncMermaidControls() {
 }
 
 function loadJobs() {
-  if (!storageKey) {
-    return [];
+  if (!storageKey || storageUnavailable) {
+    return memoryJobs;
   }
   try {
-    return JSON.parse(localStorage.getItem(storageKey) || "[]");
+    const jobs = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    return Array.isArray(jobs) ? jobs.filter((job) => job && typeof job.job_id === "string") : [];
   } catch {
-    return [];
+    storageUnavailable = true;
+    return memoryJobs;
   }
 }
 
@@ -31,7 +36,13 @@ function saveJobs(jobs) {
   if (!storageKey) {
     return;
   }
-  localStorage.setItem(storageKey, JSON.stringify(jobs.slice(0, 20)));
+  memoryJobs = jobs.slice(0, 20);
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(memoryJobs));
+  } catch {
+    storageUnavailable = true;
+    // Conversion remains available when browser storage is disabled or full.
+  }
 }
 
 function removeJob(jobId) {
@@ -122,19 +133,30 @@ form.addEventListener("submit", async (event) => {
 renderMermaid.addEventListener("change", syncMermaidControls);
 
 async function initializeSession() {
+  button.disabled = true;
+  retrySession.hidden = true;
   try {
-    const response = await fetch("api/session");
+    const response = await fetch("api/session", { cache: "no-store" });
     if (!response.ok) {
       throw new Error("会话初始化失败");
     }
     const session = await response.json();
+    if (typeof session.session_id !== "string" || !session.session_id) {
+      throw new Error("会话响应无效，请重新连接。");
+    }
+    if (storageKey !== `md-convert-jobs:${session.session_id}`) {
+      memoryJobs = [];
+    }
     storageKey = `md-convert-jobs:${session.session_id}`;
     renderJobs();
     button.disabled = false;
   } catch (error) {
     jobsEl.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+    retrySession.hidden = false;
   }
 }
+
+retrySession.addEventListener("click", initializeSession);
 
 setInterval(() => {
   if (!storageKey) {

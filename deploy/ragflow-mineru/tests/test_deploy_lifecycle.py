@@ -11,9 +11,6 @@ import unittest
 ROOT = Path(__file__).resolve().parents[3]
 STACK = ROOT / "deploy" / "ragflow-mineru"
 SCRIPT = ROOT / "deploy" / "ragflow-mineru" / "scripts" / "deploy-linux.sh"
-UNPACKED_PACKAGE = (
-    ROOT / "dist" / "ragflow-mineru-airgap-v0.26.4-20260708-163537"
-)
 COMPOSE_FILES = (
     "docker-compose.yml",
     "docker-compose.mineru.yml",
@@ -44,6 +41,7 @@ class DeployLifecycleTests(unittest.TestCase):
         (self.package / "images").mkdir(parents=True)
         (self.package / "images" / "test.tar").write_bytes(b"test-image")
         (self.package / "scripts").mkdir()
+        shutil.copyfile(SCRIPT.parent / "runtime-common.sh", self.package / "scripts/runtime-common.sh")
 
     def _create_runtime(self):
         docker_dir = self.project / "ragflow" / "docker"
@@ -84,14 +82,19 @@ printf 'docker-compose %s\\n' "$*" >> "$COMMAND_LOG"
         path.write_text(content, encoding="utf-8")
         path.chmod(0o755)
 
-    def _run(self, *arguments: str, compose_v1: bool = True):
+    def _run(
+        self, *arguments: str, compose_v1: bool = True,
+        cwd: Path = ROOT, script: Path = SCRIPT,
+    ):
         self._write_stubs(compose_v1)
         env = os.environ.copy()
         env["PATH"] = os.pathsep.join((str(self.bin_dir), env["PATH"]))
         env["COMMAND_LOG"] = str(self.command_log)
+        env.pop("COMPOSE_PROJECT_NAME", None)
+        env.pop("OFFICE_PIDS_LIMIT", None)
         return subprocess.run(
-            ["bash", str(SCRIPT), *arguments],
-            cwd=ROOT,
+            ["bash", str(script), *arguments],
+            cwd=cwd,
             env=env,
             text=True,
             capture_output=True,
@@ -117,6 +120,51 @@ printf 'docker-compose %s\\n' "$*" >> "$COMMAND_LOG"
             commands,
         )
         self.assertTrue(commands[-1].endswith("up -d"), commands)
+
+    def test_up_in_place_from_unpacked_package(self):
+        packaged_script = self.package / "scripts" / "deploy-linux.sh"
+        shutil.copyfile(SCRIPT, packaged_script)
+        docker_dir = self.package / "ragflow" / "docker"
+        sentinel = docker_dir / "data.sentinel"
+        sentinel.write_text("keep", encoding="utf-8")
+
+        result = self._run(
+            "up", "--project-dir", "./",
+            cwd=self.package, script=packaged_script,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skipping file copy", result.stdout)
+        self.assertTrue(self._commands()[0].startswith("docker load -i "))
+        self.assertTrue(self._commands()[-1].endswith("up -d"))
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+        self.assertTrue((docker_dir / "docker-compose.v1.yml").exists())
+        self.assertTrue((docker_dir / "md-convert-data").is_dir())
+
+    def test_up_in_place_through_project_symlink(self):
+        project_link = self.base / "package-link"
+        project_link.symlink_to(self.package, target_is_directory=True)
+
+        result = self._run(
+            "up", "--package-dir", str(self.package),
+            "--project-dir", str(project_link), "--skip-load",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skipping file copy", result.stdout)
+        self.assertTrue(self._commands()[-1].endswith("up -d"))
+
+    def test_up_copies_to_new_relative_project_directory(self):
+        result = self._run(
+            "up", "--package-dir", "./package",
+            "--project-dir", "./new runtime", "--skip-load", cwd=self.base,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        docker_dir = self.base / "new runtime" / "ragflow" / "docker"
+        self.assertEqual((docker_dir / ".env").read_text(), "PUBLIC_PORT=18080\n")
+        self.assertTrue((docker_dir / "docker-compose.v1.yml").exists())
+        self.assertTrue(self._commands()[-1].endswith("up -d"))
 
     def test_down_stops_the_full_compose_stack(self):
         result = self._run("down", "--project-dir", str(self.project))
@@ -225,9 +273,6 @@ printf 'docker-compose %s\\n' "$*" >> "$COMMAND_LOG"
 
     def test_documentation_describes_lifecycle_and_image_preservation(self):
         readmes = [STACK / "README.md"]
-        packaged_readme = UNPACKED_PACKAGE / "README.md"
-        if packaged_readme.exists():
-            readmes.append(packaged_readme)
 
         for readme in readmes:
             with self.subTest(readme=readme):
@@ -237,12 +282,81 @@ printf 'docker-compose %s\\n' "$*" >> "$COMMAND_LOG"
                 self.assertIn("rm --purge-data", content)
                 self.assertIn("Docker images", content)
 
-    def test_unpacked_package_uses_the_tracked_lifecycle_script(self):
-        packaged_script = UNPACKED_PACKAGE / "scripts" / "deploy-linux.sh"
-        if not packaged_script.exists():
-            self.skipTest("unpacked air-gap package is not present")
+    def test_namespace_is_used_for_up_and_lifecycle_actions(self):
+        for action in ("up", "down", "rm"):
+            with self.subTest(action=action):
+                arguments = [action, "--project-dir", str(self.project)]
+                if action == "up":
+                    arguments += ["--package-dir", str(self.package), "--skip-load",
+                                  "--project-name", "internal-docs"]
+                result = self._run(*arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("-p internal-docs ", self._commands()[-1])
 
-        self.assertEqual(SCRIPT.read_bytes(), packaged_script.read_bytes())
+    def test_namespace_cannot_be_changed_for_existing_runtime(self):
+        docker_dir = self.project / "ragflow/docker"
+        (docker_dir / ".compose-project-name").write_text("internal-docs\n")
+        result = self._run("up", "--project-dir", str(self.project),
+                           "--package-dir", str(self.package), "--project-name", "other")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("belongs to Compose project", result.stderr)
+        self.assertEqual(self._commands(), [])
+
+    def test_prepare_only_renders_config_without_starting_or_overwriting_data(self):
+        for base, value in ((self.package, "package"), (self.project, "keep")):
+            directory = base / "ragflow/docker/md-convert-data"
+            directory.mkdir()
+            (directory / "job.data").write_text(value)
+        result = self._run("up", "--project-dir", str(self.project),
+                           "--package-dir", str(self.package), "--skip-load", "--skip-up")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        docker_dir = self.project / "ragflow/docker"
+        self.assertTrue((docker_dir / "docker-compose.v1.yml").exists())
+        self.assertEqual((docker_dir / "md-convert-data/job.data").read_text(), "keep")
+        self.assertEqual(self._commands(), [])
+
+    def test_upgrade_preserves_server_environment_and_namespace(self):
+        docker_dir = self.project / "ragflow/docker"
+        environment = "PUBLIC_PORT=8007\nREDIS_PASSWORD=keep-secret\nCOMPOSE_PROJECT_NAME=internal-docs\n"
+        (docker_dir / ".env").write_text(environment)
+        result = self._run("up", "--project-dir", str(self.project),
+                           "--package-dir", str(self.package), "--skip-load")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((docker_dir / ".env").read_text(), environment)
+        self.assertIn("-p internal-docs ", self._commands()[-1])
+
+    def test_generated_compose_scopes_upstream_and_uses_integer_pids(self):
+        docker_dir = self.project / "ragflow/docker"
+        (docker_dir / ".env").write_text("OFFICE_PIDS_LIMIT=512\n")
+        (docker_dir / "docker-compose.yml").write_text(
+            "include:\n  - ./docker-compose-base.yml\nservices:\n  ragflow-gpu:\n"
+            "    container_name: ragflow-server\n    image: ragflow:test\n")
+        (docker_dir / "docker-compose-base.yml").write_text(
+            "services:\n  redis:\n    container_name: docker_redis_1\n    image: redis:test\n"
+            "    volumes:\n      - redis_data:/data\nvolumes:\n  redis_data:\n")
+        (docker_dir / "docker-compose.office-gateway.yml").write_text(
+            (STACK / "docker-compose.office-gateway.yml").read_text())
+        result = self._run("down", "--project-dir", str(self.project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("-p doc2markdown ", self._commands()[-1])
+        for name in ("docker-compose.v1.yml", "docker-compose-base.v1.yml"):
+            content = (docker_dir / name).read_text()
+            self.assertNotIn("container_name:", content)
+            self.assertNotIn("include:", content)
+        office = (docker_dir / "docker-compose.office-gateway.v1.yml").read_text()
+        self.assertIn("    pids_limit: 512\n", office)
+        self.assertNotIn("${OFFICE_PIDS_LIMIT", office)
+
+    def test_invalid_pids_and_namespace_fail_before_compose(self):
+        docker_dir = self.project / "ragflow/docker"
+        (docker_dir / ".env").write_text("OFFICE_PIDS_LIMIT=oops\n")
+        result = self._run("down", "--project-dir", str(self.project))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("positive integer", result.stderr)
+        result = self._run("down", "--project-dir", str(self.project), "--project-name", "../bad")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid Compose project name", result.stderr)
+        self.assertEqual(self._commands(), [])
 
 
 if __name__ == "__main__":

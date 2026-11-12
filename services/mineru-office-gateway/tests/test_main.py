@@ -20,6 +20,15 @@ class MainApiTests(unittest.IsolatedAsyncioTestCase):
         self.tmp_dir = Path(self.temporary_directory.name) / "requests"
         self.router_requests = []
         self.router_error = None
+        self.router_health = {
+            "status": "healthy",
+            "protocol_version": 2,
+            "max_concurrent_requests": 2,
+            "processing_window_size": 4,
+            "version": "3.4.2",
+            "servers": [{"server_id": "worker-0", "healthy": True}],
+        }
+        self.router_health_status = 200
 
         async def router(request):
             if self.router_error is not None:
@@ -27,7 +36,7 @@ class MainApiTests(unittest.IsolatedAsyncioTestCase):
             await request.aread()
             self.router_requests.append(request)
             if request.url.path == "/health":
-                return httpx.Response(200, json={"status": "ok"})
+                return httpx.Response(self.router_health_status, json=self.router_health)
             status = 202 if request.url.path == "/tasks" else 200
             return httpx.Response(status, json={"task_id": "upstream-task"})
 
@@ -89,6 +98,40 @@ class MainApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'name="backend"\r\n\r\npipeline', captured)
         self.assertIn(b'filename="report.pdf"', captured)
         self.assertEqual(list(self.tmp_dir.iterdir()), [])
+
+    async def test_pdf_local_backends_discard_hidden_gradio_server_url(self):
+        for backend in ("pipeline", "vlm-engine", "hybrid-engine"):
+            with self.subTest(backend=backend):
+                response = await self.client.post(
+                    "/tasks",
+                    files=[("files", ("scan.pdf", b"%PDF-1.7", "application/pdf"))],
+                    data={"backend": backend, "server_url": "http://localhost:30000"},
+                )
+                self.assertEqual(response.status_code, 202)
+                captured = self.router_requests[-1].content
+                self.assertNotIn(b'name="server_url"', captured)
+                self.assertIn(backend.encode(), captured)
+
+    async def test_remote_backend_keeps_its_server_url(self):
+        response = await self.client.post(
+            "/tasks",
+            files=[("files", ("scan.pdf", b"%PDF-1.7", "application/pdf"))],
+            data={"backend": "vlm-http-client", "server_url": "http://model:30000"},
+        )
+        self.assertEqual(response.status_code, 202)
+        self.assertIn(b'name="server_url"', self.router_requests[-1].content)
+        self.assertIn(b"http://model:30000", self.router_requests[-1].content)
+
+    async def test_office_pipeline_override_discards_remote_server_url(self):
+        response = await self.client.post(
+            "/tasks",
+            files=[("files", ("report.docx", minimal_docx_bytes(), "application/octet-stream"))],
+            data={"backend": "vlm-http-client", "server_url": "http://localhost:30000"},
+        )
+        self.assertEqual(response.status_code, 202)
+        captured = self.router_requests[-1].content
+        self.assertNotIn(b'name="server_url"', captured)
+        self.assertIn(b'name="backend"\r\n\r\npipeline', captured)
 
     async def test_native_docx_is_forwarded_without_rendering(self):
         response = await self.client.post(
@@ -230,11 +273,49 @@ class MainApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["gateway"], "ok")
         self.assertEqual(response.json()["libreoffice"], "ok")
         self.assertEqual(response.json()["mineru"], "ok")
+        for key, value in self.router_health.items():
+            self.assertEqual(response.json()[key], value)
         timeout = self.router_requests[-1].extensions["timeout"]
         self.assertEqual(timeout["connect"], 5)
         self.assertEqual(timeout["read"], 5)
         self.assertEqual(timeout["write"], 5)
         self.assertEqual(timeout["pool"], 5)
+
+    async def test_health_does_not_mask_router_failure(self):
+        completed = subprocess.CompletedProcess([], 0, "LibreOffice", "")
+        for status_code, payload in (
+            (200, {"status": "unhealthy", "error": "No workers"}),
+            (503, {"status": "unhealthy", "error": "No workers"}),
+            (503, {"status": "healthy"}),
+            (200, {"status": "ok"}),
+            (200, ["unexpected response"]),
+        ):
+            with self.subTest(status_code=status_code, payload=payload):
+                self.router_health_status = status_code
+                self.router_health = payload
+                with patch("app.main.subprocess.run", return_value=completed):
+                    response = await self.client.get("/health")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.json()["status"], "unhealthy")
+                self.assertEqual(response.json()["mineru"], "error")
+
+    async def test_health_reports_libreoffice_failure_despite_healthy_router(self):
+        completed = subprocess.CompletedProcess([], 1, "", "failed")
+        with patch("app.main.subprocess.run", return_value=completed):
+            response = await self.client.get("/health")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "unhealthy")
+        self.assertEqual(response.json()["mineru"], "ok")
+        self.assertEqual(response.json()["libreoffice"], "error")
+
+    async def test_health_reports_router_connection_failure(self):
+        self.router_error = httpx.ConnectError("router unavailable")
+        completed = subprocess.CompletedProcess([], 0, "LibreOffice", "")
+        with patch("app.main.subprocess.run", return_value=completed):
+            response = await self.client.get("/health")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "unhealthy")
+        self.assertEqual(response.json()["mineru"], "error")
 
     async def test_upstream_client_uses_bounded_timeouts(self):
         timeout = self.app.state.client.timeout

@@ -2,9 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/runtime-common.sh"
 DEFAULT_PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKAGE_DIR="$DEFAULT_PACKAGE_DIR"
 PROJECT_DIR="/opt/ragflow-mineru"
+PROJECT_NAME=""
 ACTION="up"
 ACTION_SET=0
 SKIP_LOAD=0
@@ -24,6 +26,7 @@ Usage:
 Options:
   --package-dir PATH   Unpacked offline package directory.
   --project-dir PATH   Install/runtime directory. Default: /opt/ragflow-mineru
+  --project-name NAME  Compose namespace. Default: doc2markdown (saved per runtime).
   --skip-load          Do not run docker load for images/*.tar.
   --skip-up            Prepare files and images but do not start containers.
   --purge-data         With rm, also remove Compose volumes and PROJECT_DIR.
@@ -49,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --project-dir)
       PROJECT_DIR="$2"
+      shift 2
+      ;;
+    --project-name)
+      PROJECT_NAME="${2:?--project-name requires a value}"
       shift 2
       ;;
     --skip-load)
@@ -108,9 +115,9 @@ require_cmd docker
 
 run_compose() {
   if command -v docker-compose >/dev/null 2>&1; then
-    docker-compose "$@"
+    docker-compose -p "$COMPOSE_PROJECT_NAME" "$@"
   elif docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
+    docker compose -p "$COMPOSE_PROJECT_NAME" "$@"
   else
     echo "Docker Compose is required: install either 'docker compose' or 'docker-compose'." >&2
     exit 1
@@ -122,7 +129,7 @@ write_compose_v1_file() {
   local target="$2"
   local strip_include="${3:-0}"
 
-  awk -v strip_include="$strip_include" '
+  awk -v strip_include="$strip_include" -v office_pids="$OFFICE_PIDS_LIMIT" '
     function indent(line, prefix) {
       prefix = line
       sub(/[^ ].*$/, "", prefix)
@@ -143,6 +150,12 @@ write_compose_v1_file() {
     }
 
     {
+      # Let Compose scope every container, including upstream services.
+      if ($0 ~ /^    container_name:/) next
+      if (current_service == "mineru-office-gateway" && $0 ~ /^    pids_limit:/) {
+        print "    pids_limit: " office_pids
+        next
+      }
       if (skipping_include) {
         if ($0 ~ /^[^[:space:]#][^:]*:/) {
           skipping_include = 0
@@ -192,6 +205,11 @@ prepare_compose_v1_files() {
   local docker_dir="$1"
   local main_file="$docker_dir/docker-compose.yml"
   local has_include=0
+  OFFICE_PIDS_LIMIT="${OFFICE_PIDS_LIMIT:-$(read_runtime_env "$docker_dir/.env" OFFICE_PIDS_LIMIT 256)}"
+  if [[ ! "$OFFICE_PIDS_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "OFFICE_PIDS_LIMIT must be a positive integer." >&2
+    return 1
+  fi
 
   if grep -Eq '^include:' "$main_file"; then
     has_include=1
@@ -283,6 +301,7 @@ run_lifecycle_action() {
 
   resolved_project_dir="$(resolve_installed_project_dir)"
   runtime_docker_dir="$resolved_project_dir/ragflow/docker"
+  resolve_compose_project_name "$runtime_docker_dir" "$PROJECT_NAME"
   if [[ "$PURGE_DATA" -eq 1 ]]; then
     validate_purge_project_dir "$resolved_project_dir"
   fi
@@ -315,9 +334,8 @@ if [[ "$ACTION" != "up" ]]; then
   exit 0
 fi
 
-PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd)"
+PACKAGE_DIR="$(cd "$PACKAGE_DIR" && pwd -P)"
 SOURCE_DOCKER_DIR="$PACKAGE_DIR/ragflow/docker"
-TARGET_DOCKER_DIR="$PROJECT_DIR/ragflow/docker"
 
 if [[ ! -f "$SOURCE_DOCKER_DIR/docker-compose.yml" ]]; then
   echo "Package is missing ragflow/docker/docker-compose.yml: $SOURCE_DOCKER_DIR" >&2
@@ -344,6 +362,8 @@ if [[ ! -f "$SOURCE_DOCKER_DIR/docker-compose.gateway.yml" ]]; then
   exit 1
 fi
 
+resolve_compose_project_name "$PROJECT_DIR/ragflow/docker" "$PROJECT_NAME" "$SOURCE_DOCKER_DIR/.env"
+
 if [[ "$SKIP_LOAD" -eq 0 ]]; then
   shopt -s nullglob
   image_archives=("$PACKAGE_DIR"/images/*.tar)
@@ -357,8 +377,29 @@ if [[ "$SKIP_LOAD" -eq 0 ]]; then
   done
 fi
 
+mkdir -p "$PROJECT_DIR"
+PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd -P)"
+TARGET_DOCKER_DIR="$PROJECT_DIR/ragflow/docker"
 mkdir -p "$TARGET_DOCKER_DIR"
-cp -a "$SOURCE_DOCKER_DIR"/. "$TARGET_DOCKER_DIR"/
+if [[ "$SOURCE_DOCKER_DIR" -ef "$TARGET_DOCKER_DIR" ]]; then
+  echo "Package and runtime use the same docker directory; skipping file copy."
+else
+  shopt -s dotglob nullglob
+  for entry in "$SOURCE_DOCKER_DIR"/*; do
+    name="${entry##*/}"
+    # Keep server passwords/ports and the installed namespace on upgrades.
+    [[ "$name" == .compose-project-name ]] && continue
+    [[ "$name" == .env && -f "$TARGET_DOCKER_DIR/.env" ]] && continue
+    case "$name" in
+      ragflow-logs|mineru-input|mineru-output|office-fonts|md-convert-data)
+        [[ -d "$TARGET_DOCKER_DIR/$name" ]] && continue
+        ;;
+    esac
+    cp -a -- "$entry" "$TARGET_DOCKER_DIR/"
+  done
+  shopt -u dotglob
+fi
+printf '%s\n' "$COMPOSE_PROJECT_NAME" > "$TARGET_DOCKER_DIR/.compose-project-name"
 mkdir -p \
   "$TARGET_DOCKER_DIR/ragflow-logs" \
   "$TARGET_DOCKER_DIR/mineru-input" \
@@ -376,13 +417,14 @@ else
   echo "nvidia-smi not found. Continue only if this is an intentional CPU test or the NVIDIA driver is installed differently."
 fi
 
+prepare_runtime_compose_files "$TARGET_DOCKER_DIR"
+
 if [[ "$SKIP_UP" -eq 1 ]]; then
   echo "Files and images prepared. Containers were not started because --skip-up was set."
   exit 0
 fi
 
 cd "$TARGET_DOCKER_DIR"
-prepare_runtime_compose_files "$TARGET_DOCKER_DIR"
 
 run_compose \
   "${compose_files[@]}" \
@@ -390,9 +432,11 @@ run_compose \
 
 echo
 echo "Stack start requested."
-echo "Gateway:        http://<server>:$(grep -E '^PUBLIC_PORT=' .env | tail -n1 | cut -d= -f2- || echo 18080)"
-echo "RAGFlow WebUI:  http://<server>:$(grep -E '^PUBLIC_PORT=' .env | tail -n1 | cut -d= -f2- || echo 18080)/"
-echo "MinerU API:     http://<server>:$(grep -E '^PUBLIC_PORT=' .env | tail -n1 | cut -d= -f2- || echo 18080)/mineru/"
-echo "MinerU Gradio:  http://<server>:$(grep -E '^PUBLIC_PORT=' .env | tail -n1 | cut -d= -f2- || echo 18080)/mineru-ui/"
-echo "MD Convert UI:  http://<server>:$(grep -E '^PUBLIC_PORT=' .env | tail -n1 | cut -d= -f2- || echo 18080)/convert/"
+echo "Compose project: $COMPOSE_PROJECT_NAME"
+PUBLIC_PORT="$(read_runtime_env .env PUBLIC_PORT 18080)"
+echo "Gateway:        http://<server>:$PUBLIC_PORT"
+echo "RAGFlow WebUI:  http://<server>:$PUBLIC_PORT/"
+echo "MinerU API:     http://<server>:$PUBLIC_PORT/mineru/"
+echo "MinerU Gradio:  http://<server>:$PUBLIC_PORT/mineru-ui/"
+echo "MD Convert UI:  http://<server>:$PUBLIC_PORT/convert/"
 echo "Run verification: bash $PACKAGE_DIR/scripts/verify-linux.sh --project-dir $PROJECT_DIR"

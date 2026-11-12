@@ -3,7 +3,7 @@
 This stack uses RAGFlow as the multi-user WebUI/API platform, MinerU as the rich
 document parsing service, and a lightweight Markdown conversion service for
 Markdown -> Word/PDF/HTML exports. It is designed for an intranet Linux server
-with Docker, Docker Compose v2, NVIDIA driver, and nvidia-container-toolkit.
+with Docker, Docker Compose v1 or v2, NVIDIA driver, and nvidia-container-toolkit.
 
 ## What the package contains
 
@@ -106,6 +106,18 @@ The script:
 3. Creates persistent runtime directories.
 4. Starts the compose stack.
 
+To run directly from the unpacked package directory:
+
+```bash
+sudo bash scripts/deploy-linux.sh up --project-dir ./
+# If all image archives have already been loaded:
+sudo bash scripts/deploy-linux.sh up --project-dir ./ --skip-load
+```
+
+When the package and runtime use the same `ragflow/docker` directory, the script
+skips copying files and continues preparing and starting the stack. Relative
+project paths are resolved from the directory where you invoke the script.
+
 Verify:
 
 ```bash
@@ -120,6 +132,100 @@ Default endpoints:
 - Markdown Convert WebUI/API: `http://<server>:<PUBLIC_PORT>/convert/`
 
 The default `PUBLIC_PORT` is `18080`.
+
+## Project isolation and upgrades
+
+The default Compose project is `doc2markdown`, rather than the directory name
+`docker`. Containers, networks, and named volumes share that project prefix;
+Redis is addressed internally as `redis` and never adopts an unrelated
+`docker_redis_1` container or `docker_redis_data` volume. Fixed container names
+are removed from the runtime configuration, including upstream services.
+
+Set `COMPOSE_PROJECT_NAME` in the packaging override file, or choose it on
+first deployment:
+
+```bash
+sudo bash scripts/deploy-linux.sh up --project-dir /opt/internal-docs \
+  --project-name internal-docs
+bash scripts/verify-linux.sh --project-dir /opt/internal-docs
+```
+
+The selected name is saved in `ragflow/docker/.compose-project-name` and reused
+by `up`, `down`, `rm`, and verification. Passing a different `--project-name`
+for that directory is rejected; the saved name takes precedence over later
+edits to `.env`. For another deployment, use a different project directory, project
+name, and `PUBLIC_PORT`. Compose v1 names typically use underscores and v2
+uses hyphens; operational scripts locate containers by Compose labels.
+
+An upgrade from a different package directory preserves the server's existing
+`.env`, including credentials, public port, and GPU settings. Review new
+environment defaults and update image names there if you selected new tags.
+Runtime `*.v1.yml` files are regenerated for both Compose versions, avoiding
+`include` incompatibilities and rendering `OFFICE_PIDS_LIMIT` as an actual
+integer (default 256). Edit `.env` or the source Compose files; generated files
+are overwritten on the next deployment.
+
+### Existing deployments with manual hotfixes
+
+The Office health, hidden `server_url`, Gradio output-directory, browser route,
+and cache fixes are now included in source and image builds. No hotfix ZIP or
+Python file mount is required. Repackage on Windows without
+`-SkipOfficeGatewayBuild`, `-SkipMineruGradioBuild`, or `-SkipMdConvertBuild` so
+the updated code enters all three images. If your model-bearing `mineru:latest`
+already exists, omit `-BuildMineru` to reuse it:
+
+```powershell
+.\deploy\ragflow-mineru\scripts\package-windows.ps1 -EnvOverridePath .\airgap.prod.env
+```
+
+For a pre-namespace installation, first identify its actual project and volume
+names. Use the current container name in this read-only inspection:
+
+```bash
+docker inspect mineru-office-gateway \
+  --format '{{index .Config.Labels "com.docker.compose.project"}}'
+docker inspect <current-redis-container> \
+  --format '{{json .Mounts}}'
+```
+
+Back up the current `.env`, Compose overrides, and application data before
+migration. To retain existing application volumes, explicitly pass the existing
+project name on the first upgrade and retain any custom volume mappings you
+previously added. A new project name deliberately selects new named volumes;
+it does not migrate old Redis/MySQL/MinIO/vector-store data. If the previous
+project name was the shared `docker`, migrate application data to a dedicated
+project before adopting the new default. Renaming only a container does not
+change its Compose labels or volume ownership. Do not use `down -v`,
+`rm --purge-data`, or volume pruning to resolve the old Redis conflict.
+
+From the newly unpacked package, first prepare the intended runtime without
+starting containers; replace `existing-project` with the inspected name:
+
+```bash
+sudo bash scripts/deploy-linux.sh up --project-dir /opt/ragflow-mineru \
+  --project-name existing-project --skip-up
+# Compare the prepared Compose files with your backup. Restore any custom
+# volume mappings in the source .yml files before starting containers.
+sudo bash scripts/deploy-linux.sh up --package-dir /opt/ragflow-mineru \
+  --project-dir /opt/ragflow-mineru --skip-load
+bash scripts/verify-linux.sh --project-dir /opt/ragflow-mineru
+```
+
+The normal deployment command uses the official Compose files and recreates
+services when the image/configuration changes. Stop invoking old
+`office-health-hotfix*/apply-linux.sh` scripts or including their override
+files. Verify the deployed gateway/UI containers have no old Python hotfix
+mounts; otherwise those mounts can hide the new image code. Keep the old
+package and backups for rollback until conversion succeeds.
+
+The gateway and Markdown Convert UI send `Cache-Control: no-store`; the
+conversion page also versions its JavaScript and CSS by content. After the
+first upgrade from an old cached page, clear site data for the service address
+once and reload, or use DevTools → Network → Disable cache and a hard reload.
+Clearing site data removes the anonymous session and its local job history.
+Subsequent upgrades should not require repeated cache clearing. If session
+initialization fails, the conversion page displays a retry button; malformed
+or unavailable browser storage does not disable submissions.
 
 ## MinerU Gradio offline UI
 
@@ -264,8 +370,13 @@ The related variables are listed in `env/airgap.env.example`.
 
 `verify-linux.sh` submits a real DOCX through `/mineru/file_parse`, validates
 that the result ZIP contains non-empty Markdown, and checks that the Office
-gateway request directory is empty afterward. This verification invokes a real
-MinerU OCR job and can take several minutes on first GPU warm-up.
+gateway request directory is empty afterward. When `mineru-ui` is enabled,
+it also checks Gradio's custom component JavaScript and relative imports,
+validates health using the installed MinerU client, and runs an Office upload
+through the same asynchronous conversion function used by the UI (including
+the Hybrid selection and hidden server URL that previously failed). These
+checks invoke real MinerU OCR jobs and can take several minutes on first GPU
+warm-up.
 
 ## Markdown Convert
 

@@ -1,7 +1,6 @@
 services:
   mineru-router:
     image: ${MINERU_IMAGE:-mineru:latest}
-    container_name: mineru-router
     profiles:
       - mineru
     restart: unless-stopped
@@ -47,7 +46,6 @@ services:
 
   mineru-gradio:
     image: ${MINERU_GRADIO_IMAGE:-mineru-gradio-offline:latest}
-    container_name: mineru-gradio
     profiles:
       - mineru-ui
     restart: unless-stopped

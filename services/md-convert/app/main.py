@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import shutil
 import uuid
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import redis
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from rq import Queue
 from rq.job import Job
@@ -222,4 +223,24 @@ def _fetch_owned_job_or_404(job_id: str, owner_hash: str) -> Job:
 
 
 static_dir = Path(__file__).parent / "static"
+
+
+@app.middleware("http")
+async def prevent_stale_ui(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path in {"/", "/index.html", "/app.js", "/styles.css", "/api/session"}:
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/index.html", response_class=HTMLResponse)
+def index():
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    for filename in ("app.js", "styles.css"):
+        version = hashlib.sha256((static_dir / filename).read_bytes()).hexdigest()[:16]
+        html = html.replace(f'"{filename}"', f'"{filename}?v={version}"')
+    return HTMLResponse(html)
+
+
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

@@ -1,7 +1,6 @@
 services:
   mineru-office-gateway:
     image: ${MINERU_OFFICE_GATEWAY_IMAGE:-mineru-office-gateway:latest}
-    container_name: mineru-office-gateway
     profiles:
       - mineru-office
     restart: unless-stopped

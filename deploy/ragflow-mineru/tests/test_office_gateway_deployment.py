@@ -105,14 +105,14 @@ class OfficeGatewayDeploymentTests(unittest.TestCase):
         script = read(STACK / "scripts" / "verify-linux.sh")
         for expected in (
             "Checking Office gateway and LibreOffice",
-            "docker exec mineru-office-gateway libreoffice --version",
+            'docker exec "$OFFICE_ID" libreoffice --version',
             "/mineru/health",
             "Checking real Office conversion through gateway",
             "/mineru/file_parse",
             "response_format_zip=true",
             "zipfile.ZipFile",
             "find /tmp/mineru-office",
-            "docker logs --tail 40 mineru-office-gateway",
+            'docker logs --tail 40 "$OFFICE_ID"',
         ):
             self.assertIn(expected, script)
 

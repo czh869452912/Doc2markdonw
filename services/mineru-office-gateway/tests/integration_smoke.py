@@ -85,7 +85,7 @@ def run(image: str) -> None:
     class RouterHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/health":
-                self._respond(200, b'{"status":"ok"}')
+                self._respond(200, b'{"status":"healthy","protocol_version":2,"max_concurrent_requests":2,"processing_window_size":4}')
             else:
                 self._respond(404, b'{}')
 

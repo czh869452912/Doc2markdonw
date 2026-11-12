@@ -1,7 +1,6 @@
 services:
   gateway:
     image: ${GATEWAY_IMAGE:-nginx:1.27-alpine}
-    container_name: ragflow-mineru-gateway
     profiles:
       - gateway
     restart: unless-stopped

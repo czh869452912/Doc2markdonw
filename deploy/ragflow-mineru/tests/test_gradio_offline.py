@@ -86,9 +86,10 @@ class GradioOfflineDeploymentTests(unittest.TestCase):
             "cdnjs.cloudflare.com",
             "use.fontawesome.com",
             "img.shields.io",
-            "docker port mineru-gradio",
+            'docker port "$GRADIO_ID"',
             "/opt/mineru-ui-assets/pdf.worker.min.mjs",
-            "docker logs --tail 40 mineru-gradio",
+            'docker logs --tail 40 "$GRADIO_ID"',
+            "verify-gradio.py",
         ):
             self.assertIn(expected, verify)
 

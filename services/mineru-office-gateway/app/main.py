@@ -67,6 +67,7 @@ def create_app(
         current = request.app.state.settings
         libreoffice_status = "error"
         mineru_status = "error"
+        mineru_health: dict[str, Any] = {}
         try:
             completed = await asyncio.to_thread(
                 subprocess.run,
@@ -86,14 +87,22 @@ def create_app(
                 f"{current.upstream_url}/health",
                 timeout=current.upstream_health_timeout_seconds,
             )
-            if 200 <= upstream.status_code < 300:
+            payload = upstream.json()
+            if isinstance(payload, dict):
+                mineru_health = payload
+            if (
+                200 <= upstream.status_code < 300
+                and mineru_health.get("status") == "healthy"
+            ):
                 mineru_status = "ok"
-        except httpx.HTTPError:
+        except (httpx.HTTPError, ValueError):
             pass
 
         healthy = libreoffice_status == "ok" and mineru_status == "ok"
         return JSONResponse(
             {
+                **mineru_health,
+                "status": "healthy" if healthy else "unhealthy",
                 "gateway": "ok",
                 "libreoffice": libreoffice_status,
                 "mineru": mineru_status,
@@ -162,6 +171,21 @@ def create_app(
                         (name, value)
                         for name, value in fields
                         if name != "office_mode"
+                    ]
+
+                # Gradio submits the hidden server URL even for local backends.
+                # Office preprocessing may also replace a remote backend with pipeline.
+                effective_backend = next(
+                    (value for name, value in reversed(forwarded_fields) if name == "backend"),
+                    None,
+                )
+                if effective_backend in {
+                    "pipeline", "vlm-engine", "hybrid-engine",
+                    "vlm-auto-engine", "hybrid-auto-engine",
+                }:
+                    forwarded_fields = [
+                        (name, value) for name, value in forwarded_fields
+                        if name != "server_url"
                     ]
 
                 handles = []

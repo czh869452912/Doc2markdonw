@@ -282,8 +282,11 @@ Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\md-convert") -Destina
 Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\mineru-office-gateway") -Destination (Join-Path $packageDir "office-gateway-source")
 Copy-DirectoryFresh -Source (Join-Path $RepoRoot "services\mineru-gradio-offline") -Destination (Join-Path $packageDir "mineru-gradio-offline-source")
 Copy-Item -Force -Path (Join-Path $StackDir "README.md") -Destination (Join-Path $packageDir "README.md")
+Copy-Item -Force -Path (Join-Path $StackDir "CHANGELOG.zh-CN.md") -Destination $packageDir
 Copy-Item -Force -Path (Join-Path $ScriptDir "deploy-linux.sh") -Destination $packageScriptsDir
 Copy-Item -Force -Path (Join-Path $ScriptDir "verify-linux.sh") -Destination $packageScriptsDir
+Copy-Item -Force -Path (Join-Path $ScriptDir "runtime-common.sh") -Destination $packageScriptsDir
+Copy-Item -Force -Path (Join-Path $ScriptDir "verify-gradio.py") -Destination $packageScriptsDir
 
 New-Item -ItemType Directory -Force -Path `
     (Join-Path $packageDockerDir "ragflow-logs"), `
@@ -304,6 +307,7 @@ $envPath = Join-Path $packageDockerDir ".env"
 Set-EnvValue -Path $envPath -Key "DOC_ENGINE" -Value $DocEngine
 Set-EnvValue -Path $envPath -Key "DEVICE" -Value $Device
 Set-EnvValue -Path $envPath -Key "COMPOSE_PROFILES" -Value $ComposeProfiles
+Set-EnvValue -Path $envPath -Key "COMPOSE_PROJECT_NAME" -Value "doc2markdown"
 Set-EnvValue -Path $envPath -Key "RAGFLOW_IMAGE" -Value $RagflowImage
 Set-EnvValue -Path $envPath -Key "MINERU_IMAGE" -Value $MineruImage
 Set-EnvValue -Path $envPath -Key "MINERU_GRADIO_IMAGE" -Value $MineruGradioImage

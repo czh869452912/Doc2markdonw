@@ -19,3 +19,6 @@ The default bundle also exposes the fully offline MinerU Gradio UI at
 Office uploads are sent through `mineru-office-gateway`.
 
 Start with [deploy/ragflow-mineru/README.md](deploy/ragflow-mineru/README.md).
+
+内网部署问题、正式修复与旧版本升级说明见
+[部署修复记录](deploy/ragflow-mineru/CHANGELOG.zh-CN.md)。

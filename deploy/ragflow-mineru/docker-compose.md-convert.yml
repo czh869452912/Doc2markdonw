@@ -1,7 +1,6 @@
 services:
   md-convert-api:
     image: ${MD_CONVERT_IMAGE:-md-convert:latest}
-    container_name: md-convert-api
     profiles:
       - md-convert
     restart: unless-stopped
@@ -31,7 +30,6 @@ services:
 
   md-convert-worker:
     image: ${MD_CONVERT_IMAGE:-md-convert:latest}
-    container_name: md-convert-worker
     profiles:
       - md-convert
     restart: unless-stopped
@@ -55,7 +53,6 @@ services:
 
   kroki:
     image: ${KROKI_IMAGE:-yuzutech/kroki:latest}
-    container_name: kroki
     profiles:
       - md-convert
     restart: unless-stopped
@@ -75,7 +72,6 @@ services:
 
   kroki-mermaid:
     image: ${KROKI_MERMAID_IMAGE:-yuzutech/kroki-mermaid:latest}
-    container_name: kroki-mermaid
     profiles:
       - md-convert
     restart: unless-stopped

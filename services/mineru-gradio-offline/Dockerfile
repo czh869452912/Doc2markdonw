@@ -14,9 +14,12 @@ COPY --from=pdfjs /build/package/build/pdf.worker.min.mjs /opt/mineru-ui-assets/
 COPY --from=pdfjs /build/package/cmaps /opt/mineru-ui-assets/cmaps
 COPY --from=pdfjs /build/package/standard_fonts /opt/mineru-ui-assets/standard_fonts
 COPY patch_gradio_pdf.py /tmp/patch_gradio_pdf.py
+COPY patch_output_paths.py /tmp/patch_output_paths.py
 
 RUN python3 /tmp/patch_gradio_pdf.py \
+    && python3 /tmp/patch_output_paths.py "$(python3 -c 'import importlib.util; print(importlib.util.find_spec("mineru.cli.output_paths").origin)')" \
     && rm /tmp/patch_gradio_pdf.py \
+    && rm /tmp/patch_output_paths.py \
     && test -s /opt/mineru-ui-assets/pdf.worker.min.mjs
 
 ENV GRADIO_ALLOWED_PATHS=/opt/mineru-ui-assets \
